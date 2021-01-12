@@ -1,0 +1,12 @@
+[submodule "lib/lib/FFmpeg"]
+	path = lib/lib/FFmpeg
+	url = https://github.com/FFmpeg/FFmpeg
+[submodule "lib/lib/opus"]
+	path = lib/lib/opus
+	url = https://github.com/xiph/opus
+[submodule "lib/FFmpeg"]
+	path = lib/FFmpeg
+	url = https://github.com/FFmpeg/FFmpeg
+[submodule "lib/opus"]
+	path = lib/opus
+	url = https://github.com/xiph/opus
