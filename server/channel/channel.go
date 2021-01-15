@@ -1,7 +1,6 @@
 package channel
 
 import (
-	"github.com/Lensual/chatroom/codec"
 	. "github.com/Lensual/chatroom/server/user"
 )
 
@@ -9,9 +8,9 @@ var channels []Channel
 var channel_count byte
 
 type Channel struct {
-	Name    string
-	Users   []User
-	Encoder codec.Codec
+	Name  string
+	Users []User
+	// Encoder codec.Codec
 }
 
 //初始化频道模块

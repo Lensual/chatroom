@@ -1,36 +1,33 @@
 package codec
 
 /*
-#cgo CFLAGS:  -I../lib/FFmpeg
-#cgo LDFLAGS: -L../lib/FFmpeg/libavcodec -lavcodec -L../lib/FFmpeg/libavutil
-#cgo LDFLAGS: -L../lib/FFmpeg/libavutil -lavutil
-#cgo LDFLAGS: -L../lib/FFmpeg/libswresample -lswresample
-#cgo LDFLAGS: -lbcrypt
 #include "libavcodec/avcodec.h"
+#include <string.h>
 */
 import "C"
-
-type (
-	Codec           C.struct_AVCodec
-	CodecContext    C.struct_AVCodecContext
-	CodecParameters C.struct_AVCodecParameters
-)
 
 //OpusDecoder OPUS解码器
 type OpusDecoder struct {
 	codec       *C.struct_AVCodec
 	codecCtx    *C.struct_AVCodecContext
 	codecParams *C.struct_AVCodecParameters
+	ioCtx       *C.struct_AVIOContext
+	fmtCtx      *C.struct_AVFormatContext
+	ringBuf     *C.struct_RingBuffer
 	Channel     int
-	BitRate     int
+	SampleRate  int
 }
 
 //Init 初始化OPUS解码器
-func (opusDec *OpusDecoder) Init() error {
-	//初始化解码器
-	codec := C.avcodec_find_decoder(C.AV_CODEC_ID_OPUS)
+func InitOpusDecoder(channel int, sampleRate int) (*OpusDecoder, error) {
+	opusDec := OpusDecoder{}
+
+	//查找解码器
+	// codec := C.avcodec_find_decoder(C.AV_CODEC_ID_OPUS)
+	codec := C.avcodec_find_decoder_by_name(C.CString("libopus"))
 	opusDec.codec = codec
 
+	//初始化解码器上下文
 	codecCtx := C.avcodec_alloc_context3(codec)
 	opusDec.codecCtx = codecCtx
 
@@ -38,9 +35,9 @@ func (opusDec *OpusDecoder) Init() error {
 	params := C.avcodec_parameters_alloc()
 	params.codec_type = C.AVMEDIA_TYPE_AUDIO
 	params.codec_id = C.AV_CODEC_ID_OPUS
-	params.channels = 1
+	params.channels = C.int(channel)
 	params.format = C.AV_SAMPLE_FMT_U8 //TODO 需要测试
-	params.sample_rate = 22050
+	params.sample_rate = C.int(sampleRate)
 	opusDec.codecParams = params
 
 	C.avcodec_parameters_to_context(codecCtx, params)
@@ -48,6 +45,25 @@ func (opusDec *OpusDecoder) Init() error {
 	//打开解码器
 	C.avcodec_open2(codecCtx, codec, nil)
 
-	//返回 TODO
-	return nil
+	//初始化环形缓冲区
+	ringBuf := initRingBuffer()
+	opusDec.ringBuf = ringBuf
+
+	//初始化IO上下文
+	ioCtx := initIOContext(ringBuf)
+	opusDec.ioCtx = ioCtx
+
+	//初始化格式上下文
+	fmtCtx := initFormatContext(ioCtx)
+	opusDec.fmtCtx = fmtCtx
+
+	//返回
+	//TODO 错误处理 返回 defer
+	return &opusDec, nil
+
+}
+
+func DeinitOpusDecoder(opusDec OpusDecoder) {
+	//TODO
+	// avcodec_free_context(&avctx);
 }

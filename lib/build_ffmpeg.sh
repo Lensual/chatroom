@@ -6,7 +6,7 @@ if [ "$(expr substr $(uname -s) 1 5)" == "Linux" ]; then
 elif [ "$(expr substr $(uname -s) 1 10)" == "MINGW64_NT" ]; then
     #pkg-config问题可能需要pacman -S mingw-w64-x86_64-pkg-config
     echo "MINGW64_NT"
-    mingw64_params='--arch=x86_64 --target-os=mingw32 ----extra-libs="-lssp"'
+    mingw64_params='--arch=x86_64 --target-os=mingw32 --extra-libs="-lssp"'
 else
     echo "暂不支持从该环境编译 欢迎提交pr"
     exit

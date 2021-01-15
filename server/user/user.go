@@ -9,7 +9,7 @@ import (
 type User struct {
 	Name       string
 	Connection net.Conn
-	decoder    codec.Codec
+	decoder    codec.OpusDecoder
 }
 
 func (this *User) Init() {
