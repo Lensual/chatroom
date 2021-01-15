@@ -14,6 +14,7 @@ type OpusDecoder struct {
 	ioCtx       *C.struct_AVIOContext
 	fmtCtx      *C.struct_AVFormatContext
 	ringBuf     *C.struct_RingBuffer
+	audioFifo   *C.struct_AVAudioFifo
 	Channel     int
 	SampleRate  int
 }
@@ -56,6 +57,10 @@ func InitOpusDecoder(channel int, sampleRate int) (*OpusDecoder, error) {
 	//初始化格式上下文
 	fmtCtx := initFormatContext(ioCtx)
 	opusDec.fmtCtx = fmtCtx
+
+	//初始化fifo
+	audioFifo := initAudioFifo(C.enum_AVSampleFormat(params.format), params.channels)
+	opusDec.audioFifo = audioFifo
 
 	//返回
 	//TODO 错误处理 返回 defer

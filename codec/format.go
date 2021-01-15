@@ -6,6 +6,7 @@ package codec
 #include "libavformat/avformat.h"
 #include "libavformat/avio.h"
 #include "libavutil/mem.h"
+#include "libavutil/audio_fifo.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -132,7 +133,7 @@ func initFormatContext(ioCtx *C.struct_AVIOContext) *C.struct_AVFormatContext {
 
 func deinitFormatContext() {
 	//TODO 需要释放fmtCtx
-	// avformat_close_input(input_format_context);
+	// avformat_free_context(output_format_context);
 }
 
 //writePacket 写入RingBuffer缓冲区，用于向ffmpeg avio提供数据
@@ -154,4 +155,13 @@ func writePacket(ringBuf unsafe.Pointer, data *[]byte) {
 		}
 	}
 	C.free(dataC)
+}
+
+//initAudioFifo 初始化音频FIFO，用于暂存解码后的音频样本
+func initAudioFifo(sampleFmt C.enum_AVSampleFormat, channels C.int) *C.struct_AVAudioFifo {
+	return C.av_audio_fifo_alloc(sampleFmt, channels, channels)
+}
+
+func deinitAudioFifo(fifo *C.struct_AVAudioFifo) {
+	C.av_audio_fifo_free(fifo)
 }
