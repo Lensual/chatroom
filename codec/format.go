@@ -159,7 +159,7 @@ func (fmtCtx *FormatContext) Init(ioCtx *IOContext) error {
 	}
 	avFmtCtx.pb = ioCtx.avIOCtx
 	avFmtCtx.flags |= C.AVFMT_FLAG_CUSTOM_IO
-	fmtCtx.avFmtCtx = fmtCtx.avFmtCtx
+	fmtCtx.avFmtCtx = avFmtCtx
 	return nil
 }
 
