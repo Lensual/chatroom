@@ -33,7 +33,9 @@ func main() {
 		return
 	}
 
-	_, _ = codec.InitOpusDecoder(1, 22050)
+	opus := codec.OpusDecoder{}
+
+	_ = opus.Init(1, 22050)
 
 	tcpListener, err := net.Listen("tcp", ":7000")
 	if err != nil {

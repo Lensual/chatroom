@@ -1,7 +1,7 @@
 package codec
 
 /*
-#cgo LDFLAGS: -lavutil
+#cgo LDFLAGS: -lavutil -lavcodec
 
 #include "libavformat/avformat.h"
 #include "libavformat/avio.h"
@@ -87,7 +87,11 @@ int write_packet(void *opaque, uint8_t *buf, int buf_size)
 
 */
 import "C"
-import "unsafe"
+import (
+	"errors"
+	"syscall"
+	"unsafe"
+)
 
 //initRingBuffer 初始化环形缓冲区 用于go给avio传递数据
 func initRingBuffer() *C.struct_RingBuffer {
@@ -99,41 +103,78 @@ func deinitRingBuffer(ringBuf *C.struct_RingBuffer) {
 	C.free((unsafe.Pointer)(ringBuf))
 }
 
-//initIOContext 初始化IO上下文
-func initIOContext(ringBuf *C.struct_RingBuffer) *C.struct_AVIOContext {
+//IO上下文
+type IOContext struct {
+	avIOCtx *C.struct_AVIOContext
+}
+
+//初始化IO上下文
+func (ioCtx *IOContext) Init(ringBuf *C.struct_RingBuffer) error {
+	if ringBuf == nil {
+		return errors.New("ringBuf is nil")
+	}
+
 	//初始化buffer ffmpeg用的
-	ioCtxBuffer := C.av_malloc((C.IO_CTX_BUFFER_SIZE))
+	avIOCtxBuffer := C.av_malloc((C.IO_CTX_BUFFER_SIZE))
+	if avIOCtxBuffer == nil {
+		return errors.New(syscall.ENOMEM.Error())
+	}
 
 	//第四个参数是用户数据指针，暂时设置为NULL
 	//第五个参数read_packet 是自己实现的io方法
 	readFunc := C.readFunc(C.read_packet)
-	ioCtx := C.avio_alloc_context((*C.uchar)(ioCtxBuffer),
+	avIOCtx := C.avio_alloc_context((*C.uchar)(avIOCtxBuffer),
 		C.IO_CTX_BUFFER_SIZE,
 		0,
 		unsafe.Pointer(ringBuf),
 		readFunc,
 		nil,
 		nil)
-	return ioCtx
+	if ioCtx == nil {
+		C.av_free(avIOCtxBuffer)
+		return errors.New(syscall.ENOMEM.Error())
+	}
+	ioCtx.avIOCtx = avIOCtx
+	return nil
 }
 
-func deinitIOContext() {
-	//TODO 需要释放ioCtxBuffer
-	//TODO 需要始放ioCtx
-	// avio_closep(&(*output_format_context)->pb);
+//释放IO上下文
+func (ioCtx *IOContext) Deinit() {
+	C.avio_close(ioCtx.avIOCtx) //包含了IOContext和buffer的释放，不需要重复释放
 }
 
-//initFormatContext 初始化Format上下文
-func initFormatContext(ioCtx *C.struct_AVIOContext) *C.struct_AVFormatContext {
-	fmtCtx := C.avformat_alloc_context()
-	fmtCtx.pb = ioCtx
-	fmtCtx.flags |= C.AVFMT_FLAG_CUSTOM_IO
-	return fmtCtx
+//Format上下文
+type FormatContext struct {
+	avFmtCtx *C.struct_AVFormatContext
 }
 
-func deinitFormatContext() {
-	//TODO 需要释放fmtCtx
-	// avformat_free_context(output_format_context);
+// 初始化Format上下文
+func (fmtCtx *FormatContext) Init(ioCtx *IOContext) error {
+	if ioCtx == nil {
+		return errors.New("ioCtx is nil")
+	}
+	avFmtCtx := C.avformat_alloc_context()
+	if avFmtCtx == nil {
+		return errors.New(syscall.ENOMEM.Error())
+	}
+	avFmtCtx.pb = ioCtx.avIOCtx
+	avFmtCtx.flags |= C.AVFMT_FLAG_CUSTOM_IO
+	fmtCtx.avFmtCtx = fmtCtx.avFmtCtx
+	return nil
+}
+
+//作为输入打开Format上下文
+func (fmtCtx *FormatContext) Open() error {
+	code := int(C.avformat_open_input(&fmtCtx.avFmtCtx, nil, nil, nil))
+	if code != 0 {
+		return errors.New(err2str(code))
+	}
+	return nil
+}
+
+//释放Format上下文
+func (fmtCtx *FormatContext) Deinit() {
+	C.avformat_close_input(&fmtCtx.avFmtCtx) //此处调用了avio_close释放IOContext，同时它的buffer也被释放，不需要重复释放
 }
 
 //writePacket 写入RingBuffer缓冲区，用于向ffmpeg avio提供数据
@@ -155,13 +196,4 @@ func writePacket(ringBuf unsafe.Pointer, data *[]byte) {
 		}
 	}
 	C.free(dataC)
-}
-
-//initAudioFifo 初始化音频FIFO，用于暂存解码后的音频样本
-func initAudioFifo(sampleFmt C.enum_AVSampleFormat, channels C.int) *C.struct_AVAudioFifo {
-	return C.av_audio_fifo_alloc(sampleFmt, channels, channels)
-}
-
-func deinitAudioFifo(fifo *C.struct_AVAudioFifo) {
-	C.av_audio_fifo_free(fifo)
 }
