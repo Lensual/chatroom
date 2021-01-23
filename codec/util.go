@@ -60,3 +60,7 @@ func (frame *Frame) Deinit() {
 	C.av_frame_free(&frame.avFrame)
 	frame.avFrame = nil
 }
+
+func (frame *Frame) Unref() {
+	C.av_frame_unref(frame.avFrame)
+}

@@ -26,19 +26,32 @@ type Packet struct {
 }
 
 //初始化Packet，用于存放编码压缩过的数据
-func (packet *Packet) Init() error {
-	avPacket := C.av_packet_alloc()
-	if avPacket == nil {
-		return errors.New(syscall.ENOMEM.Error())
+func (packet *Packet) Init(bufferSize int) error {
+	var avPacket *C.struct_AVPacket
+	if bufferSize > 0 {
+		code := int(C.av_new_packet(avPacket, C.int(bufferSize)))
+		if code != 0 {
+			return errors.New(err2str(code))
+		}
+	} else {
+		avPacket = C.av_packet_alloc()
+		if avPacket == nil {
+			return errors.New(syscall.ENOMEM.Error())
+		}
+		C.av_init_packet((*C.struct_AVPacket)(avPacket))
+		avPacket.data = nil
+		avPacket.size = 0
 	}
-	C.av_init_packet((*C.struct_AVPacket)(avPacket))
-	avPacket.data = nil
-	avPacket.size = 0
 	packet.avPacket = avPacket
 	return nil
 }
 
+//释放Packet
 func (packet *Packet) Deinit() {
 	C.av_packet_free(&packet.avPacket)
 	packet.avPacket = nil
+}
+
+func (packet *Packet) Unref() {
+	C.av_packet_unref(packet.avPacket)
 }

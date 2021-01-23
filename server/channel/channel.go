@@ -1,37 +1,35 @@
 package channel
 
 import (
+	"github.com/Lensual/chatroom/codec"
 	. "github.com/Lensual/chatroom/server/user"
 )
 
-var channels []Channel
-var channel_count byte
+var channels map[string]Channel
 
 type Channel struct {
-	Name  string
-	Users []User
-	// Encoder codec.Codec
+	Name    string
+	Users   []User
+	Encoder codec.OpusEncoder
 }
 
 //初始化频道模块
-func InitChannel() {
-	channel_count = 0
-	channels = make([]Channel, 256)
-
+func InitChannel(config []Config) {
+	channels = make(map[string]Channel, len(config))
+	for _, v := range config {
+		CreateChannel(v)
+	}
 }
 
 //新增频道
-func NewChannel(name string) {
-	channels[int(channel_count)] = Channel{
-		Name:  name,
+func CreateChannel(config Config) {
+	channels[config.Name] = Channel{
+		Name:  config.Name,
 		Users: make([]User, 0),
 	}
 }
 
 //清理频道
-func ClearChannel(index byte) {
-	for _, v := range channels[index].Users {
-		v.Connection.Close()
-	}
-	channels[index] = Channel{}
+func ClearChannel(channel *Channel) {
+	//TODO
 }

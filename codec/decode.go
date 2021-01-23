@@ -23,11 +23,10 @@ type OpusDecoder struct {
 	ringBuf       *C.struct_RingBuffer
 	audioFIFO     *AudioFIFO
 	Channel       int
-	SampleRate    int
 }
 
 // 初始化OPUS解码器
-func (opusDec *OpusDecoder) Init(channel int, sampleRate int) error {
+func (opusDec *OpusDecoder) Init(channel int) error {
 	noerr := false
 	defer func() {
 		if !noerr {
@@ -60,7 +59,6 @@ func (opusDec *OpusDecoder) Init(channel int, sampleRate int) error {
 	params.codec_id = C.AV_CODEC_ID_OPUS
 	params.channels = C.int(channel)
 	params.format = C.AV_SAMPLE_FMT_U8 //TODO 需要测试
-	params.sample_rate = C.int(sampleRate)
 	opusDec.avCodecParams = params
 	code := int(C.avcodec_parameters_to_context(avCodecCtx, params))
 	if code != 0 {
@@ -147,9 +145,16 @@ func (opusDec *OpusDecoder) Deinit() {
 // 返回值: err error, eof bool
 func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
 	noerr := false
+	var packet *Packet
 	defer func() {
 		if !noerr {
+			if packet.avPacket != nil {
+				packet.Unref()
+				packet.Deinit()
+			}
+			packet = nil
 			if frame.avFrame == nil {
+				frame.Unref()
 				frame.Deinit()
 			}
 			frame = nil
@@ -157,8 +162,8 @@ func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
 	}()
 
 	//初始化Packet
-	packet := Packet{}
-	err := packet.Init()
+	packet = &Packet{}
+	err := packet.Init(0)
 	if err != nil {
 		return err, false
 	}
@@ -178,6 +183,7 @@ func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
 		}
 		return errors.New(err2str(code)), false
 	}
+
 	//发送待解码数据
 	code = int(C.avcodec_send_packet(opusDec.avCodecCtx, packet.avPacket))
 	if code != 0 {
@@ -197,6 +203,11 @@ func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
 		}
 	}
 	noerr = true
+
+	//clean up
+	packet.Unref()
+	packet.Deinit()
+
 	return nil, false
 
 }

@@ -5,46 +5,50 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/Lensual/chatroom/codec"
+	"github.com/Lensual/chatroom/server/channel"
 	ClientConn "github.com/Lensual/chatroom/server/client"
 )
 
 ///build info
-const (
-	BuildVersion string = "not set"
-	BuildTime    string = "not set"
-	BuildName    string = "not set"
-	CommitID     string = "not set"
+var (
+	commitHash string = "unknown"
+	buildTime  string = "unknown"
+	goVersion  string = "unknown"
 )
 
 func main() {
 	var showVer bool
+	var configFile string
 
 	flag.BoolVar(&showVer, "v", false, "show build version")
+	flag.StringVar(&configFile, "c", "config.js", "config file path")
 
 	flag.Parse()
 
 	if showVer {
-		// Printf( "build name:\t%s\nbuild ver:\t%s\nbuild time:\t%s\nCommitID:%s\n", BuildName, BuildVersion, BuildTime, CommitID )
-		fmt.Printf("build name:\t%s\n", BuildName)
-		fmt.Printf("build ver:\t%s\n", BuildVersion)
-		fmt.Printf("build time:\t%s\n", BuildTime)
-		fmt.Printf("Commit ID:\t%s\n", CommitID)
+		fmt.Printf("Git Commit Hash: %s \n", commitHash)
+		fmt.Printf("Build TimeStamp: %s \n", buildTime)
+		fmt.Printf("GoLang Version: %s \n", goVersion)
 		return
 	}
 
-	opus := codec.OpusDecoder{}
+	loadConfig(configFile)
 
-	_ = opus.Init(1, 22050)
+	//初始化频道
+	channel.InitChannel(config.Channels)
 
-	tcpListener, err := net.Listen("tcp", ":7000")
+	//监听
+	tcpListener, err := net.Listen("tcp", config.Listen)
 	if err != nil {
 		panic(err)
 	}
+
+	//开始Accept循环
 	for {
 		tcpConn, err := tcpListener.Accept()
 		if err != nil {
-			panic(err)
+			tcpConn.Close()
+			continue
 		}
 		conn, err := ClientConn.NewConnection(tcpConn)
 		if err == nil {
