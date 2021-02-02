@@ -6,6 +6,7 @@ package codec
 #include "libavutil/audio_fifo.h"
 #include "libavutil/error.h"
 #include "libavutil/frame.h"
+#include "libavutil/channel_layout.h"
 
 static const char *error2string(int code) { return av_err2str(code); }
 */
@@ -13,7 +14,6 @@ import "C"
 import (
 	"errors"
 	"syscall"
-	"unsafe"
 )
 
 type AudioFIFO struct {
@@ -38,7 +38,7 @@ func (fifo *AudioFIFO) Deinit() {
 func err2str(code int) string {
 	cStr := C.error2string(C.int(code))
 	goStr := C.GoString(cStr)
-	C.free(unsafe.Pointer(cStr))
+	// C.free(unsafe.Pointer(cStr))
 	return goStr
 }
 
@@ -56,11 +56,38 @@ func (frame *Frame) Init() error {
 	return nil
 }
 
+//释放Frame
 func (frame *Frame) Deinit() {
 	C.av_frame_free(&frame.avFrame)
 	frame.avFrame = nil
 }
 
+//释放Buffer，重置Frame
 func (frame *Frame) Unref() {
 	C.av_frame_unref(frame.avFrame)
 }
+
+//分配Buffer，需要先设置哈nb_samples、format、channel_layout
+func (frame *Frame) GetBuffer() error {
+	code := int(C.av_frame_get_buffer(frame.avFrame, 0))
+	if code < 0 {
+		return errors.New((err2str(code)))
+	}
+	return nil
+}
+
+//保证Buffer可写，如果不可写则分配新的Buffer
+func (frame *Frame) MakeWriteable() error {
+	code := int(C.av_frame_make_writable(frame.avFrame))
+	if code < 0 {
+		return errors.New((err2str(code)))
+	}
+	return nil
+}
+
+type ChannelLayout C.uint64_t
+
+const (
+	Mono   ChannelLayout = C.AV_CH_LAYOUT_MONO
+	Stereo ChannelLayout = C.AV_CH_LAYOUT_STEREO
+)

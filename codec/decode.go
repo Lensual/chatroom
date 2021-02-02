@@ -58,7 +58,7 @@ func (opusDec *OpusDecoder) Init(channel int) error {
 	params.codec_type = C.AVMEDIA_TYPE_AUDIO
 	params.codec_id = C.AV_CODEC_ID_OPUS
 	params.channels = C.int(channel)
-	params.format = C.AV_SAMPLE_FMT_U8 //TODO 需要测试
+	params.format = C.AV_SAMPLE_FMT_S16 //TODO 需要测试
 	opusDec.avCodecParams = params
 	code := int(C.avcodec_parameters_to_context(avCodecCtx, params))
 	if code != 0 {
@@ -141,9 +141,9 @@ func (opusDec *OpusDecoder) Deinit() {
 	}
 }
 
-// DecodeFrame 解码
+// Decode 解码
 // 返回值: err error, eof bool
-func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
+func (opusDec *OpusDecoder) Decode(output *Frame) (error, bool) {
 	noerr := false
 	var packet *Packet
 	defer func() {
@@ -151,13 +151,13 @@ func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
 			if packet.avPacket != nil {
 				packet.Unref()
 				packet.Deinit()
+				packet = nil
 			}
-			packet = nil
-			if frame.avFrame == nil {
-				frame.Unref()
-				frame.Deinit()
+			if output.avFrame != nil {
+				output.Unref()
+				output.Deinit()
+				output = nil
 			}
-			frame = nil
 		}
 	}()
 
@@ -169,15 +169,15 @@ func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
 	}
 
 	//初始化Frame
-	frame = &Frame{}
-	err = frame.Init()
+	output = &Frame{}
+	err = output.Init()
 	if err != nil {
 		return err, false
 	}
 
-	//从Format上下文中读出未解码的数据
+	//从Format上下文中读出未解码的数据，下面写的av_read_frame实际上读的是packet
 	code := int(C.av_read_frame(opusDec.fmtCtx.avFmtCtx, packet.avPacket))
-	if code != 0 {
+	if code < 0 {
 		if code == C.AVERROR_EOF {
 			return nil, true
 		}
@@ -186,14 +186,14 @@ func (opusDec *OpusDecoder) DecodeFrame(frame *Frame) (error, bool) {
 
 	//发送待解码数据
 	code = int(C.avcodec_send_packet(opusDec.avCodecCtx, packet.avPacket))
-	if code != 0 {
+	if code < 0 {
 		return errors.New(err2str(code)), false
 	}
 
 	//接收解码后的数据
-	code = int(C.avcodec_receive_frame(opusDec.avCodecCtx, frame.avFrame))
-	if code != 0 {
-		if code == C.EAGAIN {
+	code = int(C.avcodec_receive_frame(opusDec.avCodecCtx, output.avFrame))
+	if code < 0 {
+		if code == -C.EAGAIN {
 			//需要更多数据解码
 			return nil, false
 		} else if code == C.AVERROR_EOF {

@@ -52,6 +52,7 @@ func (packet *Packet) Deinit() {
 	packet.avPacket = nil
 }
 
+//释放Buffer，重置Packet
 func (packet *Packet) Unref() {
 	C.av_packet_unref(packet.avPacket)
 }
