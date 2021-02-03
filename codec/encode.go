@@ -2,7 +2,6 @@ package codec
 
 /*
 #include "libavcodec/avcodec.h"
-#include "libavformat/avformat.h"
 #include "libavutil/error.h"
 #include "libavutil/channel_layout.h"
 #include <string.h>
@@ -77,7 +76,7 @@ type OpusEncoder struct {
 }
 
 // 初始化OPUS编码器
-func (opusEnc *OpusEncoder) Init(layout ChannelLayout, sampleRate int, bitRate int) error {
+func (opusEnc *OpusEncoder) Init(fmt SampleFormat, layout ChannelLayout, sampleRate int, bitRate int) error {
 	noerr := false
 	defer func() {
 		if !noerr {
@@ -101,7 +100,7 @@ func (opusEnc *OpusEncoder) Init(layout ChannelLayout, sampleRate int, bitRate i
 	if int(C.check_channel_layout(avCodec, C.uint64_t(layout))) == 0 {
 		return errors.New("unsupport layouts")
 	}
-	if int(C.check_sample_fmt(avCodec, C.AV_SAMPLE_FMT_S16)) == 0 { //TODO 这里写死 后期修正
+	if int(C.check_sample_fmt(avCodec, C.enum_AVSampleFormat(fmt))) == 0 {
 		return errors.New("unsupport sample format")
 	}
 
@@ -113,24 +112,8 @@ func (opusEnc *OpusEncoder) Init(layout ChannelLayout, sampleRate int, bitRate i
 	opusEnc.avCodecCtx = avCodecCtx
 
 	//配置编码器参数
-	// params := C.avcodec_parameters_alloc()
-	// if params == nil {
-	// 	return errors.New(syscall.ENOMEM.Error())
-	// }
-	// params.codec_type = C.AVMEDIA_TYPE_AUDIO
-	// params.codec_id = C.AV_CODEC_ID_OPUS
-	// params.channels = C.av_get_channel_layout_nb_channels(C.uint64_t(layout))
-	// params.format = C.AV_SAMPLE_FMT_S16 //TODO 需要测试
-	// params.sample_rate = C.int(sampleRate)
-	// params.bit_rate = C.longlong(bitRate)
-	// opusEnc.avCodecParams = params
-	// code := int(C.avcodec_parameters_to_context(avCodecCtx, params))
-	// if code != 0 {
-	// 	return errors.New((err2str(code)))
-	// }
-
 	avCodecCtx.bit_rate = C.longlong(bitRate)
-	avCodecCtx.sample_fmt = C.AV_SAMPLE_FMT_S16
+	avCodecCtx.sample_fmt = C.enum_AVSampleFormat(fmt)
 	avCodecCtx.sample_rate = C.int(sampleRate)
 	avCodecCtx.channel_layout = C.uint64_t(layout)
 	avCodecCtx.channels = C.av_get_channel_layout_nb_channels(C.uint64_t(layout))
@@ -201,32 +184,42 @@ func (opusEnc *OpusEncoder) Deinit() {
 // Encode编码，可能返回包含多个packet
 // 返回值: err error, output *[][]byte
 func (opusEnc *OpusEncoder) Encode(input *[]byte) (error, *[][]byte) {
-	//检查帧大小
-	if len(*input) != int(opusEnc.avCodecCtx.frame_size) {
-		return errors.New("frame size dismatch"), nil
-	}
+	//是否为flush请求
+	if input == nil {
+		//flush请求
+		code := int(C.avcodec_send_frame(opusEnc.avCodecCtx, nil))
+		if code < 0 {
+			return errors.New((err2str(code))), nil
+		}
+	} else {
+		//正常请求
+		//检查帧大小
+		if len(*input) != int(opusEnc.avCodecCtx.frame_size) {
+			return errors.New("frame size dismatch"), nil
+		}
 
-	//保证帧可写
-	err := opusEnc.frame.MakeWriteable()
-	if err != nil {
-		return err, nil
-	}
+		//保证帧可写
+		err := opusEnc.frame.MakeWriteable()
+		if err != nil {
+			return err, nil
+		}
 
-	//复制到buffer
-	in := C.CBytes(*input)
-	C.memcpy(unsafe.Pointer(opusEnc.frame.avFrame.data[0]), in, C.size_t(opusEnc.avCodecCtx.frame_size))
-	C.free(in)
+		//复制到buffer
+		in := C.CBytes(*input)
+		C.memcpy(unsafe.Pointer(opusEnc.frame.avFrame.data[0]), in, C.size_t(opusEnc.avCodecCtx.frame_size))
+		C.free(in)
 
-	//编码
-	code := int(C.avcodec_send_frame(opusEnc.avCodecCtx, opusEnc.frame.avFrame))
-	if code < 0 {
-		return errors.New((err2str(code))), nil
+		//编码
+		code := int(C.avcodec_send_frame(opusEnc.avCodecCtx, opusEnc.frame.avFrame))
+		if code < 0 {
+			return errors.New((err2str(code))), nil
+		}
 	}
 
 	output := make([][]byte, 0)
 
 	for {
-		code = int(C.avcodec_receive_packet(opusEnc.avCodecCtx, opusEnc.packet.avPacket))
+		code := int(C.avcodec_receive_packet(opusEnc.avCodecCtx, opusEnc.packet.avPacket))
 		if code == -C.EAGAIN || code == C.AVERROR_EOF {
 			break
 		} else if code < 0 {

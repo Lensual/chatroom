@@ -17,3 +17,7 @@ lib/build
 lib/build_linux
 
 .VSCodeCounter
+
+test/test.opus
+
+config.json

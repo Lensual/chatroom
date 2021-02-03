@@ -7,6 +7,7 @@ package codec
 #include "libavutil/error.h"
 #include "libavutil/frame.h"
 #include "libavutil/channel_layout.h"
+#include "libavutil/samplefmt.h"
 
 static const char *error2string(int code) { return av_err2str(code); }
 */
@@ -85,9 +86,32 @@ func (frame *Frame) MakeWriteable() error {
 	return nil
 }
 
+//通道布局
 type ChannelLayout C.uint64_t
 
 const (
 	Mono   ChannelLayout = C.AV_CH_LAYOUT_MONO
 	Stereo ChannelLayout = C.AV_CH_LAYOUT_STEREO
+)
+
+//样本数据格式
+type SampleFormat C.enum_AVSampleFormat
+
+const (
+	SampleFormatNone   SampleFormat = C.AV_SAMPLE_FMT_NONE
+	SampleFormatU8     SampleFormat = C.AV_SAMPLE_FMT_U8  ///< unsigned 8 bits
+	SampleFormatS16    SampleFormat = C.AV_SAMPLE_FMT_S16 ///< signed 16 bits
+	SampleFormatS32    SampleFormat = C.AV_SAMPLE_FMT_S32 ///< signed 32 bits
+	SampleFormatFloat  SampleFormat = C.AV_SAMPLE_FMT_FLT ///< float
+	SampleFormatDouble SampleFormat = C.AV_SAMPLE_FMT_DBL ///< double
+
+	SampleFormatU8P     SampleFormat = C.AV_SAMPLE_FMT_U8P  ///< unsigned 8 bits, planar
+	SampleFormatS16P    SampleFormat = C.AV_SAMPLE_FMT_S16P ///< signed 16 bits, planar
+	SampleFormatS32P    SampleFormat = C.AV_SAMPLE_FMT_S32P ///< signed 32 bits, planar
+	SampleFormatFloatP  SampleFormat = C.AV_SAMPLE_FMT_FLTP ///< float, planar
+	SampleFormatDoubleP SampleFormat = C.AV_SAMPLE_FMT_DBLP ///< double, planar
+	SampleFormatS64     SampleFormat = C.AV_SAMPLE_FMT_S64  ///< signed 64 bits
+	SampleFormatS64P    SampleFormat = C.AV_SAMPLE_FMT_S64P ///< signed 64 bits, planar
+
+	SampleFormatNB SampleFormat = C.AV_SAMPLE_FMT_NB ///< Number of sample formats. DO NOT USE if linking dynamically
 )
