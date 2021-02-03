@@ -64,8 +64,8 @@ import (
 	"unsafe"
 )
 
-//OpusEncoder OPUS编码器
-type OpusEncoder struct {
+//Encoder 编码器
+type Encoder struct {
 	avCodec    *C.struct_AVCodec
 	avCodecCtx *C.struct_AVCodecContext
 	// avCodecParams *C.struct_AVCodecParameters
@@ -75,23 +75,23 @@ type OpusEncoder struct {
 	SampleRate int
 }
 
-// 初始化OPUS编码器
-func (opusEnc *OpusEncoder) Init(fmt SampleFormat, layout ChannelLayout, sampleRate int, bitRate int) error {
+// 初始化编码器
+func (enc *Encoder) Init(encoderName string, fmt SampleFormat, layout ChannelLayout, sampleRate int, bitRate int) error {
 	noerr := false
 	defer func() {
 		if !noerr {
-			opusEnc.Deinit()
+			enc.Deinit()
 		}
 	}()
 
 	//查找编码器
-	codesName := C.CString("libopus")
+	codesName := C.CString(encoderName)
 	avCodec := C.avcodec_find_encoder_by_name(codesName)
 	C.free(unsafe.Pointer(codesName))
 	if avCodec == nil {
-		return errors.New("opus encoder is not found")
+		return errors.New(encoderName + "encoder is not found")
 	}
-	opusEnc.avCodec = avCodec
+	enc.avCodec = avCodec
 
 	//检查参数
 	if int(C.check_sample_rate(avCodec, C.int(sampleRate))) == 0 {
@@ -109,7 +109,7 @@ func (opusEnc *OpusEncoder) Init(fmt SampleFormat, layout ChannelLayout, sampleR
 	if avCodecCtx == nil {
 		return errors.New(syscall.ENOMEM.Error())
 	}
-	opusEnc.avCodecCtx = avCodecCtx
+	enc.avCodecCtx = avCodecCtx
 
 	//配置编码器参数
 	avCodecCtx.bit_rate = C.longlong(bitRate)
@@ -130,7 +130,7 @@ func (opusEnc *OpusEncoder) Init(fmt SampleFormat, layout ChannelLayout, sampleR
 	if err != nil {
 		return err
 	}
-	opusEnc.packet = packet
+	enc.packet = packet
 
 	//初始化Frame
 	frame := &Frame{}
@@ -141,7 +141,7 @@ func (opusEnc *OpusEncoder) Init(fmt SampleFormat, layout ChannelLayout, sampleR
 	frame.avFrame.nb_samples = avCodecCtx.frame_size
 	frame.avFrame.format = C.int(avCodecCtx.sample_fmt)
 	frame.avFrame.channel_layout = avCodecCtx.channel_layout
-	opusEnc.frame = frame
+	enc.frame = frame
 
 	//初始化Frame的buffer
 	err = frame.GetBuffer()
@@ -154,63 +154,63 @@ func (opusEnc *OpusEncoder) Init(fmt SampleFormat, layout ChannelLayout, sampleR
 	return nil
 }
 
-//释放OPUS编码器
-func (opusEnc *OpusEncoder) Deinit() {
-	if opusEnc.avCodec != nil {
-		// C.av_free(unsafe.Pointer(opusEnc.avCodec)) //不能释放这个，这个是全局静态的
-		opusEnc.avCodec = nil
+//释放编码器
+func (enc *Encoder) Deinit() {
+	if enc.avCodec != nil {
+		// C.av_free(unsafe.Pointer(enc.avCodec)) //不能释放这个，这个是全局静态的
+		enc.avCodec = nil
 	}
-	if opusEnc.avCodecCtx != nil {
-		C.avcodec_close(opusEnc.avCodecCtx)
-		C.avcodec_free_context(&opusEnc.avCodecCtx)
-		opusEnc.avCodecCtx = nil
+	if enc.avCodecCtx != nil {
+		C.avcodec_close(enc.avCodecCtx)
+		C.avcodec_free_context(&enc.avCodecCtx)
+		enc.avCodecCtx = nil
 	}
-	// if opusEnc.avCodecParams != nil {
-	// 	C.avcodec_parameters_free(&opusEnc.avCodecParams)
-	// 	opusEnc.avCodecParams = nil
+	// if enc.avCodecParams != nil {
+	// 	C.avcodec_parameters_free(&enc.avCodecParams)
+	// 	enc.avCodecParams = nil
 	// }
-	if opusEnc.packet != nil {
-		opusEnc.packet.Unref()
-		opusEnc.packet.Deinit()
-		opusEnc.packet = nil
+	if enc.packet != nil {
+		enc.packet.Unref()
+		enc.packet.Deinit()
+		enc.packet = nil
 	}
-	if opusEnc.frame != nil {
-		opusEnc.frame.Unref()
-		opusEnc.frame.Deinit()
-		opusEnc.frame = nil
+	if enc.frame != nil {
+		enc.frame.Unref()
+		enc.frame.Deinit()
+		enc.frame = nil
 	}
 }
 
 // Encode编码，可能返回包含多个packet
 // 返回值: err error, output *[][]byte
-func (opusEnc *OpusEncoder) Encode(input *[]byte) (error, *[][]byte) {
+func (enc *Encoder) Encode(input *[]byte) (error, *[][]byte) {
 	//是否为flush请求
 	if input == nil {
 		//flush请求
-		code := int(C.avcodec_send_frame(opusEnc.avCodecCtx, nil))
+		code := int(C.avcodec_send_frame(enc.avCodecCtx, nil))
 		if code < 0 {
 			return errors.New((err2str(code))), nil
 		}
 	} else {
 		//正常请求
 		//检查帧大小
-		if len(*input) != int(opusEnc.avCodecCtx.frame_size) {
+		if len(*input) != int(enc.avCodecCtx.frame_size) {
 			return errors.New("frame size dismatch"), nil
 		}
 
 		//保证帧可写
-		err := opusEnc.frame.MakeWriteable()
+		err := enc.frame.MakeWriteable()
 		if err != nil {
 			return err, nil
 		}
 
 		//复制到buffer
 		in := C.CBytes(*input)
-		C.memcpy(unsafe.Pointer(opusEnc.frame.avFrame.data[0]), in, C.size_t(opusEnc.avCodecCtx.frame_size))
+		C.memcpy(unsafe.Pointer(enc.frame.avFrame.data[0]), in, C.size_t(enc.avCodecCtx.frame_size))
 		C.free(in)
 
 		//编码
-		code := int(C.avcodec_send_frame(opusEnc.avCodecCtx, opusEnc.frame.avFrame))
+		code := int(C.avcodec_send_frame(enc.avCodecCtx, enc.frame.avFrame))
 		if code < 0 {
 			return errors.New((err2str(code))), nil
 		}
@@ -219,26 +219,26 @@ func (opusEnc *OpusEncoder) Encode(input *[]byte) (error, *[][]byte) {
 	output := make([][]byte, 0)
 
 	for {
-		code := int(C.avcodec_receive_packet(opusEnc.avCodecCtx, opusEnc.packet.avPacket))
+		code := int(C.avcodec_receive_packet(enc.avCodecCtx, enc.packet.avPacket))
 		if code == -C.EAGAIN || code == C.AVERROR_EOF {
 			break
 		} else if code < 0 {
 			return errors.New((err2str(code))), nil
 		}
 
-		pkt := C.GoBytes(unsafe.Pointer(opusEnc.packet.avPacket.data), opusEnc.packet.avPacket.size)
+		pkt := C.GoBytes(unsafe.Pointer(enc.packet.avPacket.data), enc.packet.avPacket.size)
 		output = append(output, pkt)
 
-		opusEnc.packet.Unref()
+		enc.packet.Unref()
 	}
 
 	return nil, &output
 }
 
 //获取帧大小，失败返回0
-func (opusEnc *OpusEncoder) GetFrameSize() int {
-	if opusEnc.avCodecCtx != nil {
-		return int(opusEnc.avCodecCtx.frame_size)
+func (enc *Encoder) GetFrameSize() int {
+	if enc.avCodecCtx != nil {
+		return int(enc.avCodecCtx.frame_size)
 	}
 	return 0
 }

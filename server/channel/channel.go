@@ -10,7 +10,7 @@ var channels map[string]Channel
 type Channel struct {
 	Name    string
 	Users   []User
-	Encoder codec.OpusEncoder
+	Encoder codec.Encoder
 }
 
 //初始化频道模块

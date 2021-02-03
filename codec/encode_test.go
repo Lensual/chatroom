@@ -17,9 +17,9 @@ func writePkt(pkt *[][]byte, file *os.File) {
 	}
 }
 
-func TestOpusEncoder(t *testing.T) {
-	enc := codec.OpusEncoder{}
-	err := enc.Init(codec.SampleFormatS16, codec.Mono, 16000, 64000)
+func TestEncoderOpus(t *testing.T) {
+	enc := codec.Encoder{}
+	err := enc.Init("libopus", codec.SampleFormatS16, codec.Mono, 16000, 64000)
 	if err != nil {
 		t.Fatal(err)
 	}
