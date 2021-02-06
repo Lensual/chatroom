@@ -56,3 +56,10 @@ func (packet *Packet) Deinit() {
 func (packet *Packet) Unref() {
 	C.av_packet_unref(packet.avPacket)
 }
+
+//将数据转换为Packet结构，注意，这样不使用引用计数特性
+func (packet *Packet) Parse(data *[]byte) {
+	cdata := C.CBytes(*data)
+	packet.avPacket.data = (*C.uchar)(cdata)
+	packet.avPacket.size = C.int(len(*data))
+}

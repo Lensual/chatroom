@@ -68,7 +68,7 @@ func (frame *Frame) Unref() {
 	C.av_frame_unref(frame.avFrame)
 }
 
-//分配Buffer，需要先设置哈nb_samples、format、channel_layout
+//分配引用计数Buffer，需要先设置好nb_samples、format、channel_layout
 func (frame *Frame) GetBuffer() error {
 	code := int(C.av_frame_get_buffer(frame.avFrame, 0))
 	if code < 0 {

@@ -2,7 +2,6 @@ package codec
 
 /*
 #include "libavcodec/avcodec.h"
-#include "libavformat/avformat.h"
 #include "libavutil/error.h"
 #include <string.h>
 */
@@ -13,201 +12,150 @@ import (
 	"unsafe"
 )
 
-//OpusDecoder OPUS解码器
-type OpusDecoder struct {
-	avCodec       *C.struct_AVCodec
-	avCodecCtx    *C.struct_AVCodecContext
-	avCodecParams *C.struct_AVCodecParameters
-	ioCtx         *IOContext
-	fmtCtx        *FormatContext
-	ringBuf       *C.struct_RingBuffer
-	audioFIFO     *AudioFIFO
-	Channel       int
+//Decoder 解码器
+type Decoder struct {
+	avCodec    *C.struct_AVCodec
+	avCodecCtx *C.struct_AVCodecContext
+	// avCodecParams *C.struct_AVCodecParameters
+	packet *Packet
+	frame  *Frame
 }
 
-// 初始化OPUS解码器
-func (opusDec *OpusDecoder) Init(channel int) error {
+// 初始化解码器
+func (dec *Decoder) Init(decoderName string, fmt SampleFormat, layout ChannelLayout, sampleRate int) error {
 	noerr := false
 	defer func() {
 		if !noerr {
-			opusDec.Deinit()
+			dec.Deinit()
 		}
 	}()
 
 	//查找解码器
-	codesName := C.CString("libopus")
+	codesName := C.CString(decoderName)
 	avCodec := C.avcodec_find_decoder_by_name(codesName)
 	C.free(unsafe.Pointer(codesName))
 	if avCodec == nil {
-		return errors.New("opus decoder is not found")
+		return errors.New("decoder is not found")
 	}
-	opusDec.avCodec = avCodec
+	dec.avCodec = avCodec
 
 	//初始化解码器上下文
 	avCodecCtx := C.avcodec_alloc_context3(avCodec)
 	if avCodecCtx == nil {
 		return errors.New(syscall.ENOMEM.Error())
 	}
-	opusDec.avCodecCtx = avCodecCtx
+	dec.avCodecCtx = avCodecCtx
 
 	//配置解码器参数
-	params := C.avcodec_parameters_alloc()
-	if params == nil {
-		return errors.New(syscall.ENOMEM.Error())
-	}
-	params.codec_type = C.AVMEDIA_TYPE_AUDIO
-	params.codec_id = C.AV_CODEC_ID_OPUS
-	params.channels = C.int(channel)
-	params.format = C.AV_SAMPLE_FMT_S16 //TODO 需要测试
-	opusDec.avCodecParams = params
-	code := int(C.avcodec_parameters_to_context(avCodecCtx, params))
-	if code != 0 {
-		return errors.New((err2str(code)))
-	}
+	avCodecCtx.sample_fmt = C.enum_AVSampleFormat(fmt)
+	avCodecCtx.sample_rate = C.int(sampleRate)
+	avCodecCtx.channel_layout = C.ulonglong(layout)
+	avCodecCtx.request_channel_layout = C.ulonglong(layout)
+	avCodecCtx.channels = C.av_get_channel_layout_nb_channels(C.ulonglong(layout))
 
 	//打开解码器
-	code = int(C.avcodec_open2(avCodecCtx, avCodec, nil))
+	code := int(C.avcodec_open2(avCodecCtx, avCodec, nil))
 	if code != 0 {
 		return errors.New((err2str(code)))
 	}
 
-	//初始化环形缓冲区
-	ringBuf := initRingBuffer()
-	opusDec.ringBuf = ringBuf
+	//初始化Packet
+	packet := &Packet{}
+	err := packet.Init(0)
+	if err != nil {
+		return err
+	}
+	dec.packet = packet
 
-	//初始化IO上下文
-	ioCtx := &IOContext{}
-	opusDec.ioCtx = ioCtx
-	err := ioCtx.Init(ringBuf)
+	//初始化Frame
+	frame := &Frame{}
+	err = frame.Init()
 	if err != nil {
 		return err
 	}
-
-	//初始化Format上下文
-	fmtCtx := &FormatContext{}
-	opusDec.fmtCtx = fmtCtx
-	err = fmtCtx.Init(ioCtx)
-	if err != nil {
-		return err
-	}
-	err = fmtCtx.Open()
-	if err != nil {
-		return err
-	}
-
-	//初始化FIFO
-	audioFIFO := &AudioFIFO{}
-	opusDec.audioFIFO = audioFIFO
-	err = audioFIFO.Init(C.enum_AVSampleFormat(params.format), params.channels)
-	if err != nil {
-		return err
-	}
+	dec.frame = frame
 
 	//返回
 	noerr = true
 	return nil
 }
 
-//释放OPUS解码器
-func (opusDec *OpusDecoder) Deinit() {
-	if opusDec.avCodec != nil {
-		// C.av_free(unsafe.Pointer(opusDec.avCodec)) //不能释放这个，这个是全局静态的
-		opusDec.avCodec = nil
+//释放解码器
+func (dec *Decoder) Deinit() {
+	if dec.avCodec != nil {
+		// C.av_free(unsafe.Pointer(dec.avCodec)) //不能释放这个，这个是全局静态的
+		dec.avCodec = nil
 	}
-	if opusDec.avCodecCtx != nil {
-		C.avcodec_close(opusDec.avCodecCtx)
-		C.avcodec_free_context(&opusDec.avCodecCtx)
-		opusDec.avCodecCtx = nil
+	if dec.avCodecCtx != nil {
+		C.avcodec_close(dec.avCodecCtx)
+		C.avcodec_free_context(&dec.avCodecCtx)
+		dec.avCodecCtx = nil
 	}
-	if opusDec.avCodecParams != nil {
-		C.avcodec_parameters_free(&opusDec.avCodecParams)
-		opusDec.avCodecParams = nil
+	if dec.packet != nil {
+		dec.packet.Unref()
+		dec.packet.Deinit()
+		dec.packet = nil
 	}
-	if opusDec.ringBuf != nil {
-		deinitRingBuffer(opusDec.ringBuf)
-		opusDec.ringBuf = nil
-	}
-	if opusDec.ioCtx != nil {
-		opusDec.ioCtx.Deinit()
-		opusDec.ioCtx = nil
-	}
-	if opusDec.fmtCtx != nil {
-		opusDec.fmtCtx.Deinit()
-		opusDec.fmtCtx = nil
-	}
-	if opusDec.audioFIFO != nil {
-		opusDec.audioFIFO.Deinit()
-		opusDec.audioFIFO = nil
+	if dec.frame != nil {
+		dec.frame.Unref()
+		dec.frame.Deinit()
+		dec.frame = nil
 	}
 }
 
 // Decode 解码
-// 返回值: err error, eof bool
-func (opusDec *OpusDecoder) Decode(output *Frame) (error, bool) {
-	noerr := false
-	var packet *Packet
-	defer func() {
-		if !noerr {
-			if packet.avPacket != nil {
-				packet.Unref()
-				packet.Deinit()
-				packet = nil
+// 返回值:output *[][]byte,eof bool, err error
+func (dec *Decoder) Decode(input *[]byte) (*[][]byte, bool, error) {
+	//是否为flush请求
+	if input == nil {
+		//flush请求
+		code := int(C.avcodec_send_packet(dec.avCodecCtx, nil))
+		if code < 0 {
+			return nil, false, errors.New((err2str(code)))
+		}
+	} else {
+		//正常请求
+
+		//将输入数据转换为packet结构
+		dec.packet.Parse(input)
+
+		//发送待解码数据
+		code := int(C.avcodec_send_packet(dec.avCodecCtx, dec.packet.avPacket))
+		if code < 0 {
+			return nil, false, errors.New(err2str(code))
+		}
+	}
+
+	output := make([][]byte, 0)
+	eof := false
+
+	for {
+		//接收解码后的数据
+		code := int(C.avcodec_receive_frame(dec.avCodecCtx, dec.frame.avFrame))
+		if code < 0 {
+			if code == -C.EAGAIN {
+				//可能需要更多数据解码
+				break
+			} else if code == C.AVERROR_EOF {
+				eof = true
+				break
+			} else if code < 0 {
+				return nil, false, errors.New(err2str(code))
 			}
-			if output.avFrame != nil {
-				output.Unref()
-				output.Deinit()
-				output = nil
-			}
 		}
-	}()
 
-	//初始化Packet
-	packet = &Packet{}
-	err := packet.Init(0)
-	if err != nil {
-		return err, false
+		size := dec.GetRealFrameSize()
+		sample := C.GoBytes(unsafe.Pointer(dec.frame.avFrame.data[0]), C.int(size))
+		output = append(output, sample)
 	}
 
-	//初始化Frame
-	output = &Frame{}
-	err = output.Init()
-	if err != nil {
-		return err, false
+	return &output, eof, nil
+}
+
+func (dec *Decoder) GetRealFrameSize() int {
+	if dec.avCodecCtx != nil {
+		nbSamples := int(dec.frame.avFrame.nb_samples)
+		return nbSamples * int(C.av_get_bytes_per_sample(dec.avCodecCtx.sample_fmt))
 	}
-
-	//从Format上下文中读出未解码的数据，下面写的av_read_frame实际上读的是packet
-	code := int(C.av_read_frame(opusDec.fmtCtx.avFmtCtx, packet.avPacket))
-	if code < 0 {
-		if code == C.AVERROR_EOF {
-			return nil, true
-		}
-		return errors.New(err2str(code)), false
-	}
-
-	//发送待解码数据
-	code = int(C.avcodec_send_packet(opusDec.avCodecCtx, packet.avPacket))
-	if code < 0 {
-		return errors.New(err2str(code)), false
-	}
-
-	//接收解码后的数据
-	code = int(C.avcodec_receive_frame(opusDec.avCodecCtx, output.avFrame))
-	if code < 0 {
-		if code == -C.EAGAIN {
-			//需要更多数据解码
-			return nil, false
-		} else if code == C.AVERROR_EOF {
-			return nil, true
-		} else {
-			return errors.New(err2str(code)), false
-		}
-	}
-	noerr = true
-
-	//clean up
-	packet.Unref()
-	packet.Deinit()
-
-	return nil, false
-
+	return 0
 }
