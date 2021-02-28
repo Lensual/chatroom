@@ -153,7 +153,7 @@ const (
 	ChLayout_Quad              ChannelLayout = C.AV_CH_LAYOUT_QUAD
 	ChLayout_5Point0           ChannelLayout = C.AV_CH_LAYOUT_5POINT0
 	ChLayout_5Point1           ChannelLayout = C.AV_CH_LAYOUT_5POINT1
-	ChChLayout_5Point0_Back    ChannelLayout = C.AV_CH_LAYOUT_5POINT0_BACK
+	ChLayout_5Point0_Back      ChannelLayout = C.AV_CH_LAYOUT_5POINT0_BACK
 	ChLayout_5Point1_Back      ChannelLayout = C.AV_CH_LAYOUT_5POINT1_BACK
 	ChLayout_6Point0           ChannelLayout = C.AV_CH_LAYOUT_6POINT0
 	ChLayout_6Point0_Front     ChannelLayout = C.AV_CH_LAYOUT_6POINT0_FRONT
