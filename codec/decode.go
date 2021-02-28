@@ -144,18 +144,10 @@ func (dec *Decoder) Decode(input *[]byte) (*[][]byte, bool, error) {
 			}
 		}
 
-		size := dec.GetRealFrameSize()
+		size := dec.frame.GetDataSize()
 		sample := C.GoBytes(unsafe.Pointer(dec.frame.avFrame.data[0]), C.int(size))
 		output = append(output, sample)
 	}
 
 	return &output, eof, nil
-}
-
-func (dec *Decoder) GetRealFrameSize() int {
-	if dec.avCodecCtx != nil {
-		nbSamples := int(dec.frame.avFrame.nb_samples)
-		return nbSamples * int(C.av_get_bytes_per_sample(dec.avCodecCtx.sample_fmt))
-	}
-	return 0
 }

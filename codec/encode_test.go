@@ -34,12 +34,26 @@ func writePkt(pkt *[][]byte, file *os.File) {
 }
 
 func testEncoderOpus(t *testing.T) {
+	format := codec.SampleFmt_S16
+	layout := codec.ChLayout_Mono
+	sampleRate := 48000
+
+	//初始化编码器
 	enc := codec.Encoder{}
-	err := enc.Init("libopus", codec.SampleFormatS16, codec.Mono, 48000, 32000)
+	err := enc.Init("libopus", format, layout, sampleRate, 32000)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	//初始化帧
+	frame := codec.Frame{}
+	frameSize := enc.GetFrameSize()
+	err = frame.InitByFormat(format, layout, frameSize)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//打开文件
 	data, err := ioutil.ReadFile("../test/48000_mono.pcm")
 	if err != nil {
 		t.Fatal(err)
@@ -50,12 +64,20 @@ func testEncoderOpus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	step := enc.GetRealFrameSize()
+	//每次取一帧的样本
+	step := frame.GetDataSize()
 	for i := 0; i < len(data); i += step {
 		if i+step > len(data) {
 			break
 		}
-		frame := data[i : i+step]
+		sample := data[i : i+step]
+		err = frame.MakeWriteable()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		frame.Write(&sample, step)
+
 		pkt, err := enc.Encode(&frame)
 		if err != nil {
 			t.Fatal(err)

@@ -5,6 +5,7 @@ package codec
 #include "libavutil/error.h"
 #include <string.h>
 
+//TODO: 封装成GO
 //确认样本格式是否支持
 int check_sample_fmt(const AVCodec *codec, enum AVSampleFormat sample_fmt)
 {
@@ -68,7 +69,6 @@ type Encoder struct {
 	avCodec    *C.struct_AVCodec
 	avCodecCtx *C.struct_AVCodecContext
 	packet     *Packet
-	frame      *Frame
 }
 
 // 初始化编码器
@@ -128,23 +128,6 @@ func (enc *Encoder) Init(encoderName string, fmt SampleFormat, layout ChannelLay
 	}
 	enc.packet = packet
 
-	//初始化Frame
-	frame := &Frame{}
-	err = frame.Init()
-	if err != nil {
-		return err
-	}
-	frame.avFrame.nb_samples = avCodecCtx.frame_size
-	frame.avFrame.format = C.int(avCodecCtx.sample_fmt)
-	frame.avFrame.channel_layout = avCodecCtx.channel_layout
-	enc.frame = frame
-
-	//初始化Frame的buffer
-	err = frame.GetBuffer()
-	if err != nil {
-		return err
-	}
-
 	//返回
 	noerr = true
 	return nil
@@ -166,41 +149,25 @@ func (enc *Encoder) Deinit() {
 		enc.packet.Deinit()
 		enc.packet = nil
 	}
-	if enc.frame != nil {
-		enc.frame.Unref()
-		enc.frame.Deinit()
-		enc.frame = nil
-	}
 }
 
 // Encode编码，可能返回包含多个packet
 // 返回值: err error, output *[][]byte
-func (enc *Encoder) Encode(input *[]byte) (*[][]byte, error) {
+func (enc *Encoder) Encode(frame *Frame) (*[][]byte, error) {
+	var avFrame *C.AVFrame
 	//是否为flush请求
-	if input == nil {
+	if frame == nil {
 		//flush请求
-		code := int(C.avcodec_send_frame(enc.avCodecCtx, nil))
-		if code < 0 {
-			return nil, errors.New((err2str(code)))
-		}
+		avFrame = nil
 	} else {
 		//正常请求
-		//保证帧可写
-		err := enc.frame.MakeWriteable()
-		if err != nil {
-			return nil, err
-		}
+		avFrame = frame.avFrame
+	}
 
-		//复制到buffer
-		in := C.CBytes(*input)
-		C.memcpy(unsafe.Pointer(enc.frame.avFrame.data[0]), in, C.size_t(enc.GetRealFrameSize()))
-		C.free(in)
-
-		//编码
-		code := int(C.avcodec_send_frame(enc.avCodecCtx, enc.frame.avFrame))
-		if code < 0 {
-			return nil, errors.New((err2str(code)))
-		}
+	//编码
+	code := int(C.avcodec_send_frame(enc.avCodecCtx, avFrame))
+	if code < 0 {
+		return nil, errors.New((err2str(code)))
 	}
 
 	output := make([][]byte, 0)
@@ -222,21 +189,10 @@ func (enc *Encoder) Encode(input *[]byte) (*[][]byte, error) {
 	return &output, nil
 }
 
-//获取帧大小(单通道样本数)，失败返回0
+//获取帧大小(样本数)，失败返回0
 func (enc *Encoder) GetFrameSize() int {
 	if enc.avCodecCtx != nil {
 		return int(enc.avCodecCtx.frame_size)
-	}
-	return 0
-}
-
-//获取真实帧大小(所有通道字节数)，失败返回0
-func (enc *Encoder) GetRealFrameSize() int {
-	if enc.avCodecCtx != nil {
-		// 移除：直接使用linesize避免一次计算
-		// nbSamples := enc.GetFrameSize()
-		// return nbSamples * int(enc.avCodecCtx.channels) * int(C.av_get_bytes_per_sample(enc.avCodecCtx.sample_fmt))
-		return int(enc.frame.avFrame.linesize[0])
 	}
 	return 0
 }

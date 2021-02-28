@@ -7,6 +7,12 @@ package codec
 #cgo LDFLAGS: -lavutil
 #cgo LDFLAGS: -lavformat
 #cgo LDFLAGS: -lopus
+#cgo LDFLAGS: -lavfilter
+#cgo LDFLAGS: -lswresample
+// #cgo LDFLAGS: -lswscale
+// #cgo LDFLAGS: -lavdevice
+// #cgo LDFLAGS: -lm
+
 #cgo !windows LDFLAGS: -lm
 #cgo windows LDFLAGS: -lbcrypt -lssp
 #include "libavcodec/avcodec.h"

@@ -28,7 +28,7 @@ func writeFrames(frames *[][]byte, file *os.File) {
 
 func testDecoderOpus(t *testing.T) {
 	dec := codec.Decoder{}
-	err := dec.Init("libopus", codec.SampleFormatS16, codec.Mono, 48000)
+	err := dec.Init("libopus", codec.SampleFmt_S16, codec.ChLayout_Mono, 48000)
 	if err != nil {
 		t.Fatal(err)
 	}
