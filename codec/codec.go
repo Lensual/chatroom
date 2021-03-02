@@ -21,6 +21,7 @@ import "C"
 import (
 	"errors"
 	"syscall"
+	"unsafe"
 )
 
 func init() {
@@ -68,4 +69,54 @@ func (packet *Packet) Parse(data *[]byte) {
 	cdata := C.CBytes(*data)
 	packet.avPacket.data = (*C.uchar)(cdata)
 	packet.avPacket.size = C.int(len(*data))
+}
+
+func (packet *Packet) GetData() *[]byte {
+	pkt := C.GoBytes(unsafe.Pointer(packet.avPacket.data), packet.avPacket.size)
+	return &pkt
+}
+
+//单链表结构
+type PacketPool struct {
+	head   *packetPoolNode
+	tail   *packetPoolNode
+	length int
+}
+
+type packetPoolNode struct {
+	next  *packetPoolNode
+	value *Packet
+}
+
+func (pool *PacketPool) Pop() *Packet {
+	if pool.tail == nil {
+		return nil
+	}
+	remove := pool.tail
+
+	ret := pool.tail.value
+	pool.tail = pool.tail.next
+	pool.length--
+
+	remove.next = nil
+	remove.value = nil
+	remove = nil
+	return ret
+}
+
+func (pool *PacketPool) Push(pkt *Packet) {
+	if pkt != nil {
+		node := &packetPoolNode{
+			value: pkt,
+			next:  nil,
+		}
+		pool.length++
+		if pool.head != nil {
+			pool.head.next = node
+		} else {
+			pool.tail = node
+		}
+		pool.head = node
+		pool.length++
+	}
 }

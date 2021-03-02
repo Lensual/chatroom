@@ -45,14 +45,6 @@ func testEncoderOpus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	//初始化帧
-	frame := codec.Frame{}
-	frameSize := enc.GetFrameSize()
-	err = frame.InitByFormat(format, layout, frameSize)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	//打开文件
 	data, err := ioutil.ReadFile("../test/48000_mono.pcm")
 	if err != nil {
@@ -65,35 +57,29 @@ func testEncoderOpus(t *testing.T) {
 	}
 
 	//每次取一帧的样本
-	step := frame.GetDataSize()
+	step := enc.GetSize()
+
 	for i := 0; i < len(data); i += step {
 		if i+step > len(data) {
 			break
 		}
 		sample := data[i : i+step]
-		err = frame.MakeWriteable()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		frame.Write(&sample, step)
-
-		pkt, err := enc.Encode(&frame)
+		packets, err := enc.EncodeToDataByData(&sample)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		// fmt.Printf("%v\n", pkt)
 
-		writePkt(pkt, out)
+		writePkt(packets, out)
 	}
 
 	//flush
-	pkt, err := enc.Encode(nil)
+	packets, err := enc.EncodeToDataByData(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writePkt(pkt, out)
+	writePkt(packets, out)
 
 	out.Close()
 	enc.Deinit()

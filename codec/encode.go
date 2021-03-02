@@ -68,7 +68,6 @@ import (
 type Encoder struct {
 	avCodec    *C.struct_AVCodec
 	avCodecCtx *C.struct_AVCodecContext
-	packet     *Packet
 }
 
 // 初始化编码器
@@ -120,14 +119,6 @@ func (enc *Encoder) Init(encoderName string, fmt SampleFormat, layout ChannelLay
 		return errors.New((err2str(code)))
 	}
 
-	//初始化Packet
-	packet := &Packet{}
-	err := packet.Init(0)
-	if err != nil {
-		return err
-	}
-	enc.packet = packet
-
 	//返回
 	noerr = true
 	return nil
@@ -144,16 +135,11 @@ func (enc *Encoder) Deinit() {
 		C.avcodec_free_context(&enc.avCodecCtx)
 		enc.avCodecCtx = nil
 	}
-	if enc.packet != nil {
-		enc.packet.Unref()
-		enc.packet.Deinit()
-		enc.packet = nil
-	}
 }
 
 // Encode编码，可能返回包含多个packet
-// 返回值: err error, output *[][]byte
-func (enc *Encoder) Encode(frame *Frame) (*[][]byte, error) {
+// 返回值: err error, output *[]Packet
+func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 	var avFrame *C.AVFrame
 	//是否为flush请求
 	if frame == nil {
@@ -170,22 +156,76 @@ func (enc *Encoder) Encode(frame *Frame) (*[][]byte, error) {
 		return nil, errors.New((err2str(code)))
 	}
 
-	output := make([][]byte, 0)
-
+	packets := make([]Packet, 0)
 	for {
-		code := int(C.avcodec_receive_packet(enc.avCodecCtx, enc.packet.avPacket))
+		packet := Packet{}
+		err := packet.Init(0)
+		if err != nil {
+			return nil, err
+		}
+
+		code := int(C.avcodec_receive_packet(enc.avCodecCtx, packet.avPacket))
 		if code == -C.EAGAIN || code == C.AVERROR_EOF {
 			break
 		} else if code < 0 {
 			return nil, errors.New((err2str(code)))
 		}
-
-		pkt := C.GoBytes(unsafe.Pointer(enc.packet.avPacket.data), enc.packet.avPacket.size)
-		output = append(output, pkt)
-
-		enc.packet.Unref()
+		packets = append(packets, packet)
 	}
 
+	return &packets, nil
+}
+
+// Encode编码，可能返回包含多个packet
+// 返回值: err error, output *[]Packet
+func (enc *Encoder) EncodeToPacketByData(data *[]byte) (*[]Packet, error) {
+	var frame *Frame
+	defer func() {
+		if frame != nil {
+			frame.Unref()
+			frame.Deinit()
+		}
+	}()
+
+	//是否为flush请求
+	if data == nil {
+		//flush请求
+		frame = nil
+	} else {
+		//正常请求
+		frame = &Frame{}
+		err := frame.InitByFormat(SampleFormat(enc.avCodecCtx.sample_fmt),
+			ChannelLayout(enc.avCodecCtx.channel_layout),
+			enc.GetFrameSize())
+		if err != nil {
+			return nil, err
+		}
+		err = frame.MakeWriteable()
+		if err != nil {
+			return nil, err
+		}
+		frame.Write(data, frame.GetDataSize())
+	}
+
+	//编码
+	return enc.EncodeToPacketByFrame(frame)
+}
+
+// Encode编码，可能返回包含多个packet
+// 返回值: err error, output *[][]byte
+func (enc *Encoder) EncodeToDataByData(data *[]byte) (*[][]byte, error) {
+	packets, err := enc.EncodeToPacketByData(data)
+	if err != nil {
+		return nil, err
+	}
+
+	output := make([][]byte, 0)
+	for _, v := range *packets {
+		data := v.GetData()
+		output = append(output, *data)
+		v.Unref()
+		v.Deinit()
+	}
 	return &output, nil
 }
 
@@ -193,6 +233,13 @@ func (enc *Encoder) Encode(frame *Frame) (*[][]byte, error) {
 func (enc *Encoder) GetFrameSize() int {
 	if enc.avCodecCtx != nil {
 		return int(enc.avCodecCtx.frame_size)
+	}
+	return 0
+}
+
+func (enc *Encoder) GetSize() int {
+	if enc.avCodecCtx != nil {
+		return enc.GetFrameSize() * GetBytesPerSample(SampleFormat(enc.avCodecCtx.sample_fmt))
 	}
 	return 0
 }
