@@ -10,8 +10,8 @@ import (
 	"github.com/Lensual/chatroom/codec"
 )
 
-func bytesToInt(bys []byte) int {
-	bytebuff := bytes.NewBuffer(bys)
+func bytesToInt(b []byte) int {
+	bytebuff := bytes.NewBuffer(b)
 	var data int32
 	_ = binary.Read(bytebuff, binary.BigEndian, &data)
 	return int(data)

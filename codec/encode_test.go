@@ -10,8 +10,8 @@ import (
 	"github.com/Lensual/chatroom/codec"
 )
 
-func intToBytes(n int) []byte {
-	data := int32(n)
+func intToBytes(i int) []byte {
+	data := int32(i)
 	bytebuf := bytes.NewBuffer([]byte{})
 	_ = binary.Write(bytebuf, binary.BigEndian, data)
 	return bytebuf.Bytes()
@@ -44,6 +44,11 @@ func testEncoderOpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	//初始化对象池
+	pool := codec.PacketPool{}
+	enc.SetPacketGenerator(pool.Pop)
+	enc.SetPacketRecycler(pool.Push)
 
 	//打开文件
 	data, err := ioutil.ReadFile("../test/48000_mono.pcm")

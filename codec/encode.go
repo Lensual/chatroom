@@ -66,8 +66,10 @@ import (
 
 //Encoder 编码器
 type Encoder struct {
-	avCodec    *C.struct_AVCodec
-	avCodecCtx *C.struct_AVCodecContext
+	avCodec         *C.struct_AVCodec
+	avCodecCtx      *C.struct_AVCodecContext
+	packetGenerator func() *Packet
+	packetRecycler  func(*Packet)
 }
 
 // 初始化编码器
@@ -135,6 +137,33 @@ func (enc *Encoder) Deinit() {
 		C.avcodec_free_context(&enc.avCodecCtx)
 		enc.avCodecCtx = nil
 	}
+	enc.packetGenerator = nil
+}
+
+func (enc *Encoder) SetPacketGenerator(f func() *Packet) {
+	enc.packetGenerator = f
+}
+
+func (enc *Encoder) SetPacketRecycler(f func(*Packet)) {
+	enc.packetRecycler = f
+}
+
+func (enc *Encoder) SendFrame(frame *Frame) error {
+	code := int(C.avcodec_send_frame(enc.avCodecCtx, frame.avFrame))
+	if code < 0 {
+		return errors.New((err2str(code)))
+	}
+	return nil
+}
+
+func (enc *Encoder) RecvPacket(packet *Packet) (bool, error) {
+	code := int(C.avcodec_receive_packet(enc.avCodecCtx, packet.avPacket))
+	if code == -C.EAGAIN || code == C.AVERROR_EOF {
+		return true, nil
+	} else if code < 0 {
+		return false, errors.New((err2str(code)))
+	}
+	return false, nil
 }
 
 // Encode编码，可能返回包含多个packet
@@ -158,19 +187,34 @@ func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 
 	packets := make([]Packet, 0)
 	for {
-		packet := Packet{}
-		err := packet.Init(0)
-		if err != nil {
-			return nil, err
+		var packet *Packet
+		if enc.packetGenerator != nil {
+			packet = enc.packetGenerator()
+		}
+		if packet == nil {
+			packet = &Packet{}
+			err := packet.Init(0)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		code := int(C.avcodec_receive_packet(enc.avCodecCtx, packet.avPacket))
-		if code == -C.EAGAIN || code == C.AVERROR_EOF {
-			break
-		} else if code < 0 {
-			return nil, errors.New((err2str(code)))
+		if code < 0 {
+			//clean
+			if enc.packetRecycler != nil {
+				enc.packetRecycler(packet)
+			} else {
+				packet.Deinit()
+			}
+
+			if code == -C.EAGAIN || code == C.AVERROR_EOF {
+				break
+			} else {
+				return &packets, errors.New((err2str(code)))
+			}
 		}
-		packets = append(packets, packet)
+		packets = append(packets, *packet)
 	}
 
 	return &packets, nil
@@ -224,7 +268,11 @@ func (enc *Encoder) EncodeToDataByData(data *[]byte) (*[][]byte, error) {
 		data := v.GetData()
 		output = append(output, *data)
 		v.Unref()
-		v.Deinit()
+		if enc.packetRecycler != nil {
+			enc.packetRecycler(&v)
+		} else {
+			v.Deinit()
+		}
 	}
 	return &output, nil
 }

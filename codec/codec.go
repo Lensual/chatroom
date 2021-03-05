@@ -45,7 +45,7 @@ func (packet *Packet) Init(bufferSize int) error {
 		if avPacket == nil {
 			return errors.New(syscall.ENOMEM.Error())
 		}
-		C.av_init_packet((*C.struct_AVPacket)(avPacket))
+		// C.av_init_packet((*C.struct_AVPacket)(avPacket))
 		avPacket.data = nil
 		avPacket.size = 0
 	}
@@ -76,7 +76,7 @@ func (packet *Packet) GetData() *[]byte {
 	return &pkt
 }
 
-//单链表结构
+//单链表 FIFO
 type PacketPool struct {
 	head   *packetPoolNode
 	tail   *packetPoolNode
@@ -84,11 +84,13 @@ type PacketPool struct {
 }
 
 type packetPoolNode struct {
+	//next 指向head方向
 	next  *packetPoolNode
 	value *Packet
 }
 
 func (pool *PacketPool) Pop() *Packet {
+	//TODO lock
 	if pool.tail == nil {
 		return nil
 	}
@@ -110,8 +112,7 @@ func (pool *PacketPool) Push(pkt *Packet) {
 			value: pkt,
 			next:  nil,
 		}
-		pool.length++
-		if pool.head != nil {
+		if pool.length > 0 {
 			pool.head.next = node
 		} else {
 			pool.tail = node
@@ -119,4 +120,8 @@ func (pool *PacketPool) Push(pkt *Packet) {
 		pool.head = node
 		pool.length++
 	}
+}
+
+func (pool *PacketPool) GetLength() int {
+	return pool.length
 }
