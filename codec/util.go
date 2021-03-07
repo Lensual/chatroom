@@ -129,8 +129,16 @@ func (frame *Frame) GetDataSize() int {
 	return channels * int(frame.avFrame.nb_samples) * sampleSize
 }
 
+//获取LineSize
 func (frame *Frame) GetLineSize() int {
 	return int(frame.avFrame.linesize[0])
+}
+
+//获取Frame中的数据
+func (frame *Frame) GetData() []byte {
+	size := frame.GetDataSize()
+	data := C.GoBytes(unsafe.Pointer(frame.avFrame.data[0]), C.int(size))
+	return data
 }
 
 /***************************

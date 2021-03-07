@@ -166,8 +166,20 @@ func (enc *Encoder) RecvPacket(packet *Packet) (bool, error) {
 	return false, nil
 }
 
-// Encode编码，可能返回包含多个packet
-// 返回值: err error, output *[]Packet
+//回收Packet
+func (enc *Encoder) recyclingPacket(packet *Packet) {
+	packet.Unref()
+	if enc.packetRecycler != nil {
+		enc.packetRecycler(packet)
+	} else {
+		packet.Deinit()
+	}
+}
+
+// 编码
+// 注意：可能会返回多个Packet
+// 注意：当出现错误时也会返回Packet，应当对返回的Packet进行释放处理
+// 返回值: output *[]Packet, err error,
 func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 	var avFrame *C.AVFrame
 	//是否为flush请求
@@ -186,50 +198,50 @@ func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 	}
 
 	packets := make([]Packet, 0)
+
+	var err error
+
 	for {
 		var packet *Packet
+
+		//如果有生成器则使用生成器
 		if enc.packetGenerator != nil {
 			packet = enc.packetGenerator()
 		}
 		if packet == nil {
 			packet = &Packet{}
-			err := packet.Init(0)
+			err = packet.Init(0)
 			if err != nil {
-				return nil, err
+				break
 			}
 		}
 
 		code := int(C.avcodec_receive_packet(enc.avCodecCtx, packet.avPacket))
 		if code < 0 {
-			//clean
-			if enc.packetRecycler != nil {
-				enc.packetRecycler(packet)
-			} else {
-				packet.Deinit()
-			}
+			//回收Packet
+			enc.recyclingPacket(packet)
 
 			if code == -C.EAGAIN || code == C.AVERROR_EOF {
 				break
 			} else {
-				return &packets, errors.New((err2str(code)))
+				err = errors.New((err2str(code)))
+				break
 			}
 		}
 		packets = append(packets, *packet)
 	}
 
-	return &packets, nil
+	return &packets, err
 }
 
-// Encode编码，可能返回包含多个packet
-// 返回值: err error, output *[]Packet
+// 编码
+// 注意：可能会返回多个Packet
+// 注意：当出现错误时也会返回Packet，应当对返回的Packet进行释放处理
+// 返回值: output *[]Packet, err error
 func (enc *Encoder) EncodeToPacketByData(data *[]byte) (*[]Packet, error) {
 	var frame *Frame
-	defer func() {
-		if frame != nil {
-			frame.Unref()
-			frame.Deinit()
-		}
-	}()
+	var err error
+	var packets *[]Packet
 
 	//是否为flush请求
 	if data == nil {
@@ -238,46 +250,52 @@ func (enc *Encoder) EncodeToPacketByData(data *[]byte) (*[]Packet, error) {
 	} else {
 		//正常请求
 		frame = &Frame{}
-		err := frame.InitByFormat(SampleFormat(enc.avCodecCtx.sample_fmt),
+		err = frame.InitByFormat(SampleFormat(enc.avCodecCtx.sample_fmt),
 			ChannelLayout(enc.avCodecCtx.channel_layout),
 			enc.GetFrameSize())
 		if err != nil {
-			return nil, err
+			goto END
 		}
 		err = frame.MakeWriteable()
 		if err != nil {
-			return nil, err
+			goto END
 		}
 		frame.Write(data, frame.GetDataSize())
 	}
 
 	//编码
-	return enc.EncodeToPacketByFrame(frame)
+	packets, err = enc.EncodeToPacketByFrame(frame)
+
+END:
+	//TODO Frame FIFO
+	if frame != nil {
+		frame.Unref()
+		frame.Deinit()
+	}
+	return packets, err
 }
 
-// Encode编码，可能返回包含多个packet
-// 返回值: err error, output *[][]byte
+// 编码
+// 注意：可能会返回多个Packet
+// 注意：当出现错误时也会返回部分数据，但因为是GO对象所以不需要释放处理
+// 返回值: output *[][]byte, err error
 func (enc *Encoder) EncodeToDataByData(data *[]byte) (*[][]byte, error) {
-	packets, err := enc.EncodeToPacketByData(data)
-	if err != nil {
-		return nil, err
-	}
+	var packets *[]Packet
+	var err error
+	packets, err = enc.EncodeToPacketByData(data)
 
 	output := make([][]byte, 0)
 	for _, v := range *packets {
 		data := v.GetData()
 		output = append(output, *data)
-		v.Unref()
-		if enc.packetRecycler != nil {
-			enc.packetRecycler(&v)
-		} else {
-			v.Deinit()
-		}
+		//回收Packet
+		enc.recyclingPacket(&v)
 	}
-	return &output, nil
+
+	return &output, err
 }
 
-//获取帧大小(样本数)，失败返回0
+//获取编码器一帧处理的样本数，失败返回0
 func (enc *Encoder) GetFrameSize() int {
 	if enc.avCodecCtx != nil {
 		return int(enc.avCodecCtx.frame_size)
@@ -285,6 +303,7 @@ func (enc *Encoder) GetFrameSize() int {
 	return 0
 }
 
+//获取一帧所占用的空间大小
 func (enc *Encoder) GetSize() int {
 	if enc.avCodecCtx != nil {
 		return enc.GetFrameSize() * GetBytesPerSample(SampleFormat(enc.avCodecCtx.sample_fmt))
@@ -292,6 +311,7 @@ func (enc *Encoder) GetSize() int {
 	return 0
 }
 
+//获取ExtraData
 func (enc *Encoder) GetExtraData() *[]byte {
 	if enc.avCodecCtx != nil {
 		data := C.GoBytes(unsafe.Pointer(enc.avCodecCtx.extradata), enc.avCodecCtx.extradata_size)
