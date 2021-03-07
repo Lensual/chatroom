@@ -14,11 +14,10 @@ import (
 
 //Decoder 解码器
 type Decoder struct {
-	avCodec    *C.struct_AVCodec
-	avCodecCtx *C.struct_AVCodecContext
-	// avCodecParams *C.struct_AVCodecParameters
-	packet *Packet
-	frame  *Frame
+	avCodec        *C.struct_AVCodec
+	avCodecCtx     *C.struct_AVCodecContext
+	frameGenerator func() *Frame
+	frameRecycler  func(*Frame)
 }
 
 // 初始化解码器
@@ -59,22 +58,6 @@ func (dec *Decoder) Init(decoderName string, fmt SampleFormat, layout ChannelLay
 		return errors.New((err2str(code)))
 	}
 
-	//初始化Packet
-	packet := &Packet{}
-	err := packet.Init(0)
-	if err != nil {
-		return err
-	}
-	dec.packet = packet
-
-	//初始化Frame
-	frame := &Frame{}
-	err = frame.Init()
-	if err != nil {
-		return err
-	}
-	dec.frame = frame
-
 	//返回
 	noerr = true
 	return nil
@@ -91,63 +74,131 @@ func (dec *Decoder) Deinit() {
 		C.avcodec_free_context(&dec.avCodecCtx)
 		dec.avCodecCtx = nil
 	}
-	if dec.packet != nil {
-		dec.packet.Unref()
-		dec.packet.Deinit()
-		dec.packet = nil
-	}
-	if dec.frame != nil {
-		dec.frame.Unref()
-		dec.frame.Deinit()
-		dec.frame = nil
+}
+
+//回收Frame
+func (dec *Decoder) recyclingFrame(frame *Frame) {
+	frame.Unref()
+	if dec.frameRecycler != nil {
+		dec.frameRecycler(frame)
+	} else {
+		frame.Deinit()
 	}
 }
 
-// Decode 解码
-// 返回值:output *[][]byte,eof bool, err error
-func (dec *Decoder) Decode(input *[]byte) (*[][]byte, bool, error) {
+// 解码
+// 注意：可能会返回多个Frame
+// 注意：当出现错误时也可能会返回Frame，应当对返回的Frame进行释放处理
+// 返回值: output *[]Frame, err error
+func (dec *Decoder) DecodeToFrameByPacket(packet *Packet) (*[]Frame, error) {
+	var avPacket *C.AVPacket
 	//是否为flush请求
-	if input == nil {
+	if packet == nil {
 		//flush请求
-		code := int(C.avcodec_send_packet(dec.avCodecCtx, nil))
-		if code < 0 {
-			return nil, false, errors.New((err2str(code)))
-		}
+		avPacket = nil
 	} else {
 		//正常请求
-
-		//将输入数据转换为packet结构
-		dec.packet.Parse(input)
-
-		//发送待解码数据
-		code := int(C.avcodec_send_packet(dec.avCodecCtx, dec.packet.avPacket))
-		if code < 0 {
-			return nil, false, errors.New(err2str(code))
-		}
+		avPacket = packet.avPacket
 	}
 
-	output := make([][]byte, 0)
-	eof := false
+	//解码
+	code := int(C.avcodec_send_packet(dec.avCodecCtx, avPacket))
+	if code < 0 {
+		return nil, errors.New((err2str(code)))
+	}
+
+	frames := make([]Frame, 0)
+
+	var err error
 
 	for {
-		//接收解码后的数据
-		code := int(C.avcodec_receive_frame(dec.avCodecCtx, dec.frame.avFrame))
-		if code < 0 {
-			if code == -C.EAGAIN {
-				//可能需要更多数据解码
+		var frame *Frame
+
+		//如果有生成器则使用生成器
+		if dec.frameGenerator != nil {
+			frame = dec.frameGenerator()
+		}
+		if frame == nil {
+			frame = &Frame{}
+			err = frame.Init()
+			if err != nil {
 				break
-			} else if code == C.AVERROR_EOF {
-				eof = true
-				break
-			} else if code < 0 {
-				return nil, false, errors.New(err2str(code))
 			}
 		}
 
-		size := dec.frame.GetDataSize()
-		sample := C.GoBytes(unsafe.Pointer(dec.frame.avFrame.data[0]), C.int(size))
-		output = append(output, sample)
+		code := int(C.avcodec_receive_frame(dec.avCodecCtx, frame.avFrame))
+		if code < 0 {
+			//回收Frame
+			dec.recyclingFrame(frame)
+
+			if code == -C.EAGAIN || code == C.AVERROR_EOF {
+				break
+			} else {
+				err = errors.New(err2str(code))
+				break
+			}
+		}
+
+		frames = append(frames, *frame)
 	}
 
-	return &output, eof, nil
+	return &frames, err
+}
+
+// 解码
+// 注意：可能会返回多个Frame
+// 注意：当出现错误时也可能会返回Frame，应当对返回的Frame进行释放处理
+// 返回值: output *[]Frame, err error
+func (dec *Decoder) DecodeToFrameByData(data *[]byte) (*[]Frame, error) {
+	var packet *Packet
+	var err error
+	var frames *[]Frame
+
+	//是否为flush请求
+	if data == nil {
+		//flush请求
+		packet = nil
+	} else {
+		//正常请求
+		packet = &Packet{}
+		err = packet.Init(0)
+		if err != nil {
+			goto END
+		}
+
+		//将输入数据转换为packet结构
+		packet.Parse(data)
+	}
+
+	//解码
+	frames, err = dec.DecodeToFrameByPacket(packet)
+
+END:
+	//TODO Packet FIFO
+	if packet != nil {
+		packet.Unref()
+		packet.Deinit()
+	}
+	return frames, err
+}
+
+// 解码
+// 注意：可能会返回多个Frame数据
+// 注意：当出现错误时也可能会返回部分数据，应当对返回的Frame进行释放处理
+// 返回值: output *[][]byte, err error
+func (dec *Decoder) DecodeToDataByData(data *[]byte) (*[][]byte, error) {
+	var frames *[]Frame
+	var err error
+	frames, err = dec.DecodeToFrameByData(data)
+
+	output := make([][]byte, 0)
+
+	for _, v := range *frames {
+		outputData := v.GetData()
+		output = append(output, *outputData)
+		//回收Frame
+		dec.recyclingFrame(&v)
+	}
+
+	return &output, err
 }

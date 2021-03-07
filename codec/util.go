@@ -135,10 +135,10 @@ func (frame *Frame) GetLineSize() int {
 }
 
 //获取Frame中的数据
-func (frame *Frame) GetData() []byte {
+func (frame *Frame) GetData() *[]byte {
 	size := frame.GetDataSize()
 	data := C.GoBytes(unsafe.Pointer(frame.avFrame.data[0]), C.int(size))
-	return data
+	return &data
 }
 
 /***************************

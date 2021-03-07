@@ -303,7 +303,7 @@ func (enc *Encoder) GetFrameSize() int {
 	return 0
 }
 
-//获取一帧所占用的空间大小
+//获取编码器一帧处理的样本数所占用的空间大小
 func (enc *Encoder) GetSize() int {
 	if enc.avCodecCtx != nil {
 		return enc.GetFrameSize() * GetBytesPerSample(SampleFormat(enc.avCodecCtx.sample_fmt))
