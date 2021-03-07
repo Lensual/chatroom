@@ -17,8 +17,8 @@ func intToBytes(i int) []byte {
 	return bytebuf.Bytes()
 }
 
-func writePkt(pkt *[][]byte, file *os.File) {
-	for _, v := range *pkt {
+func writePkt(pkt [][]byte, file *os.File) {
+	for _, v := range pkt {
 		// 先写入packet size，便于解码时读取
 		pktSize := intToBytes(len(v))
 		_, err := file.Write(pktSize)
@@ -39,16 +39,13 @@ func testEncoderOpus(t *testing.T) {
 	sampleRate := 48000
 
 	//初始化编码器
-	enc := codec.Encoder{}
+	enc := codec.Encoder{
+		UsePool: true, //使用对象池
+	}
 	err := enc.Init("libopus", format, layout, sampleRate, 32000)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	//初始化对象池
-	pool := codec.PacketPool{}
-	enc.SetPacketGenerator(pool.Pop)
-	enc.SetPacketRecycler(pool.Push)
 
 	//打开文件
 	data, err := ioutil.ReadFile("../test/48000_mono.pcm")
@@ -69,7 +66,7 @@ func testEncoderOpus(t *testing.T) {
 			break
 		}
 		sample := data[i : i+step]
-		packets, err := enc.EncodeToDataByData(&sample)
+		packets, err := enc.EncodeToDataByData(sample)
 		if err != nil {
 			t.Fatal(err)
 		}

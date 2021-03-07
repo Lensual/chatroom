@@ -116,8 +116,8 @@ func (frame *Frame) MakeWriteable() error {
 }
 
 //写入Frame
-func (frame *Frame) Write(data *[]byte, len int) {
-	cData := C.CBytes(*data)
+func (frame *Frame) Write(data []byte, len int) {
+	cData := C.CBytes(data)
 	C.memcpy(unsafe.Pointer(frame.avFrame.data[0]), cData, C.uint64_t(len))
 	C.free(cData)
 }
@@ -135,10 +135,10 @@ func (frame *Frame) GetLineSize() int {
 }
 
 //获取Frame中的数据
-func (frame *Frame) GetData() *[]byte {
+func (frame *Frame) GetData() []byte {
 	size := frame.GetDataSize()
 	data := C.GoBytes(unsafe.Pointer(frame.avFrame.data[0]), C.int(size))
-	return &data
+	return data
 }
 
 /***************************

@@ -66,10 +66,11 @@ import (
 
 //Encoder 编码器
 type Encoder struct {
-	avCodec         *C.struct_AVCodec
-	avCodecCtx      *C.struct_AVCodecContext
-	packetGenerator func() *Packet
-	packetRecycler  func(*Packet)
+	avCodec     *C.struct_AVCodec
+	avCodecCtx  *C.struct_AVCodecContext
+	UsePool     bool
+	packetsPool *Pool
+	framesPool  *Pool
 }
 
 // 初始化编码器
@@ -121,6 +122,10 @@ func (enc *Encoder) Init(encoderName string, fmt SampleFormat, layout ChannelLay
 		return errors.New((err2str(code)))
 	}
 
+	//初始化对象池
+	enc.framesPool = &Pool{}
+	enc.packetsPool = &Pool{}
+
 	//返回
 	noerr = true
 	return nil
@@ -137,15 +142,30 @@ func (enc *Encoder) Deinit() {
 		C.avcodec_free_context(&enc.avCodecCtx)
 		enc.avCodecCtx = nil
 	}
-	enc.packetGenerator = nil
-}
 
-func (enc *Encoder) SetPacketGenerator(f func() *Packet) {
-	enc.packetGenerator = f
-}
-
-func (enc *Encoder) SetPacketRecycler(f func(*Packet)) {
-	enc.packetRecycler = f
+	//清理对象池
+	if enc.framesPool != nil {
+		for {
+			obj := enc.framesPool.Pop()
+			if obj == nil {
+				break
+			}
+			frame := obj.(*Frame)
+			frame.Unref()
+			frame.Deinit()
+		}
+	}
+	if enc.packetsPool != nil {
+		for {
+			obj := enc.packetsPool.Pop()
+			if obj == nil {
+				break
+			}
+			packet := obj.(*Frame)
+			packet.Unref()
+			packet.Deinit()
+		}
+	}
 }
 
 func (enc *Encoder) SendFrame(frame *Frame) error {
@@ -169,8 +189,8 @@ func (enc *Encoder) RecvPacket(packet *Packet) (bool, error) {
 //回收Packet
 func (enc *Encoder) recyclingPacket(packet *Packet) {
 	packet.Unref()
-	if enc.packetRecycler != nil {
-		enc.packetRecycler(packet)
+	if enc.UsePool {
+		enc.packetsPool.Push(packet)
 	} else {
 		packet.Deinit()
 	}
@@ -179,8 +199,8 @@ func (enc *Encoder) recyclingPacket(packet *Packet) {
 // 编码
 // 注意：可能会返回多个Packet
 // 注意：当出现错误时也可能会返回Packet，应当对返回的Packet进行释放处理
-// 返回值: output *[]Packet, err error,
-func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
+// 返回值: output []Packet, err error,
+func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) ([]Packet, error) {
 	var avFrame *C.AVFrame
 	//是否为flush请求
 	if frame == nil {
@@ -204,9 +224,12 @@ func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 	for {
 		var packet *Packet
 
-		//如果有生成器则使用生成器
-		if enc.packetGenerator != nil {
-			packet = enc.packetGenerator()
+		//使用对象池
+		if enc.UsePool {
+			obj := enc.packetsPool.Pop()
+			if obj != nil {
+				packet = obj.(*Packet)
+			}
 		}
 		if packet == nil {
 			packet = &Packet{}
@@ -231,17 +254,17 @@ func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 		packets = append(packets, *packet)
 	}
 
-	return &packets, err
+	return packets, err
 }
 
 // 编码
 // 注意：可能会返回多个Packet
 // 注意：当出现错误时也可能会返回Packet，应当对返回的Packet进行释放处理
-// 返回值: output *[]Packet, err error
-func (enc *Encoder) EncodeToPacketByData(data *[]byte) (*[]Packet, error) {
+// 返回值: output []Packet, err error
+func (enc *Encoder) EncodeToPacketByData(data []byte) ([]Packet, error) {
 	var frame *Frame
 	var err error
-	var packets *[]Packet
+	var packets []Packet
 
 	//是否为flush请求
 	if data == nil {
@@ -278,21 +301,21 @@ END:
 // 编码
 // 注意：可能会返回多个Packet数据
 // 注意：当出现错误时也可能会返回部分数据，但因为是GO对象所以不需要释放处理
-// 返回值: output *[][]byte, err error
-func (enc *Encoder) EncodeToDataByData(data *[]byte) (*[][]byte, error) {
-	var packets *[]Packet
+// 返回值: output [][]byte, err error
+func (enc *Encoder) EncodeToDataByData(data []byte) ([][]byte, error) {
+	var packets []Packet
 	var err error
 	packets, err = enc.EncodeToPacketByData(data)
 
 	output := make([][]byte, 0)
-	for _, v := range *packets {
+	for _, v := range packets {
 		outputData := v.GetData()
-		output = append(output, *outputData)
+		output = append(output, outputData)
 		//回收Packet
 		enc.recyclingPacket(&v)
 	}
 
-	return &output, err
+	return output, err
 }
 
 //获取编码器一帧处理的样本数，失败返回0
@@ -312,10 +335,10 @@ func (enc *Encoder) GetSize() int {
 }
 
 //获取ExtraData
-func (enc *Encoder) GetExtraData() *[]byte {
+func (enc *Encoder) GetExtraData() []byte {
 	if enc.avCodecCtx != nil {
 		data := C.GoBytes(unsafe.Pointer(enc.avCodecCtx.extradata), enc.avCodecCtx.extradata_size)
-		return &data
+		return data
 	}
 	return nil
 }

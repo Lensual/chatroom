@@ -65,32 +65,33 @@ func (packet *Packet) Unref() {
 }
 
 //将数据转换为Packet结构，注意，这样不使用引用计数特性
-func (packet *Packet) Parse(data *[]byte) {
-	cdata := C.CBytes(*data)
+func (packet *Packet) Parse(data []byte) {
+	cdata := C.CBytes(data)
 	packet.avPacket.data = (*C.uchar)(cdata)
-	packet.avPacket.size = C.int(len(*data))
+	packet.avPacket.size = C.int(len(data))
 }
 
 //获取Packet中的数据
-func (packet *Packet) GetData() *[]byte {
+func (packet *Packet) GetData() []byte {
 	pkt := C.GoBytes(unsafe.Pointer(packet.avPacket.data), packet.avPacket.size)
-	return &pkt
+	return pkt
 }
 
-//单链表 FIFO
-type PacketPool struct {
-	head   *packetPoolNode
-	tail   *packetPoolNode
+//对象池
+//单链表实现的FIFO
+type Pool struct {
+	head   *poolNode
+	tail   *poolNode
 	length int
 }
 
-type packetPoolNode struct {
+type poolNode struct {
 	//next 指向head方向
-	next  *packetPoolNode
-	value *Packet
+	next  *poolNode
+	value interface{}
 }
 
-func (pool *PacketPool) Pop() *Packet {
+func (pool *Pool) Pop() interface{} {
 	//TODO lock
 	if pool.tail == nil {
 		return nil
@@ -107,10 +108,10 @@ func (pool *PacketPool) Pop() *Packet {
 	return ret
 }
 
-func (pool *PacketPool) Push(pkt *Packet) {
-	if pkt != nil {
-		node := &packetPoolNode{
-			value: pkt,
+func (pool *Pool) Push(obj interface{}) {
+	if obj != nil {
+		node := &poolNode{
+			value: obj,
 			next:  nil,
 		}
 		if pool.length > 0 {
@@ -123,6 +124,6 @@ func (pool *PacketPool) Push(pkt *Packet) {
 	}
 }
 
-func (pool *PacketPool) GetLength() int {
+func (pool *Pool) GetLength() int {
 	return pool.length
 }

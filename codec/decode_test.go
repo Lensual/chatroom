@@ -17,8 +17,8 @@ func bytesToInt(b []byte) int {
 	return int(data)
 }
 
-func writeFrames(frames *[][]byte, file *os.File) {
-	for _, v := range *frames {
+func writeFrames(frames [][]byte, file *os.File) {
+	for _, v := range frames {
 		_, err := file.Write(v)
 		if err != nil {
 			panic(err)
@@ -27,12 +27,16 @@ func writeFrames(frames *[][]byte, file *os.File) {
 }
 
 func testDecoderOpus(t *testing.T) {
-	dec := codec.Decoder{}
+	//初始化解码器
+	dec := codec.Decoder{
+		UsePool: true, //使用对象池
+	}
 	err := dec.Init("libopus", codec.SampleFmt_S16, codec.ChLayout_Mono, 48000)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	//打开文件
 	data, err := ioutil.ReadFile("../test/test_encode_opus.data")
 	if err != nil {
 		t.Fatal(err)
@@ -43,19 +47,22 @@ func testDecoderOpus(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var headSize = 4
 	var i = 0
 	for {
-		if i+4 >= len(data) {
+		if i+headSize >= len(data) {
 			break
 		}
 
-		pktSize := bytesToInt(data[i : i+4])
-		i += 4
+		//从head获取大小
+		pktSize := bytesToInt(data[i : i+headSize])
+		i += headSize
 
-		pkt := data[i : i+pktSize]
+		//获取packet
+		packet := data[i : i+pktSize]
 		i += pktSize
 
-		frames, _, err := dec.Decode(&pkt)
+		frames, err := dec.DecodeToDataByData(packet)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -64,7 +71,7 @@ func testDecoderOpus(t *testing.T) {
 	}
 
 	//flush
-	frames, _, err := dec.Decode(nil)
+	frames, err := dec.DecodeToDataByData(nil)
 	if err != nil {
 		t.Fatal(err)
 	}

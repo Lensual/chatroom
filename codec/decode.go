@@ -14,10 +14,11 @@ import (
 
 //Decoder 解码器
 type Decoder struct {
-	avCodec        *C.struct_AVCodec
-	avCodecCtx     *C.struct_AVCodecContext
-	frameGenerator func() *Frame
-	frameRecycler  func(*Frame)
+	avCodec     *C.struct_AVCodec
+	avCodecCtx  *C.struct_AVCodecContext
+	UsePool     bool
+	packetsPool *Pool
+	framesPool  *Pool
 }
 
 // 初始化解码器
@@ -58,6 +59,10 @@ func (dec *Decoder) Init(decoderName string, fmt SampleFormat, layout ChannelLay
 		return errors.New((err2str(code)))
 	}
 
+	//初始化对象池
+	dec.framesPool = &Pool{}
+	dec.packetsPool = &Pool{}
+
 	//返回
 	noerr = true
 	return nil
@@ -74,13 +79,37 @@ func (dec *Decoder) Deinit() {
 		C.avcodec_free_context(&dec.avCodecCtx)
 		dec.avCodecCtx = nil
 	}
+
+	//清理对象池
+	if dec.framesPool != nil {
+		for {
+			obj := dec.framesPool.Pop()
+			if obj == nil {
+				break
+			}
+			frame := obj.(*Frame)
+			frame.Unref()
+			frame.Deinit()
+		}
+	}
+	if dec.packetsPool != nil {
+		for {
+			obj := dec.packetsPool.Pop()
+			if obj == nil {
+				break
+			}
+			packet := obj.(*Frame)
+			packet.Unref()
+			packet.Deinit()
+		}
+	}
 }
 
 //回收Frame
 func (dec *Decoder) recyclingFrame(frame *Frame) {
 	frame.Unref()
-	if dec.frameRecycler != nil {
-		dec.frameRecycler(frame)
+	if dec.UsePool {
+		dec.framesPool.Push(frame)
 	} else {
 		frame.Deinit()
 	}
@@ -89,8 +118,8 @@ func (dec *Decoder) recyclingFrame(frame *Frame) {
 // 解码
 // 注意：可能会返回多个Frame
 // 注意：当出现错误时也可能会返回Frame，应当对返回的Frame进行释放处理
-// 返回值: output *[]Frame, err error
-func (dec *Decoder) DecodeToFrameByPacket(packet *Packet) (*[]Frame, error) {
+// 返回值: output []Frame, err error
+func (dec *Decoder) DecodeToFrameByPacket(packet *Packet) ([]Frame, error) {
 	var avPacket *C.AVPacket
 	//是否为flush请求
 	if packet == nil {
@@ -115,8 +144,11 @@ func (dec *Decoder) DecodeToFrameByPacket(packet *Packet) (*[]Frame, error) {
 		var frame *Frame
 
 		//如果有生成器则使用生成器
-		if dec.frameGenerator != nil {
-			frame = dec.frameGenerator()
+		if dec.UsePool {
+			obj := dec.framesPool.Pop()
+			if obj != nil {
+				frame = obj.(*Frame)
+			}
 		}
 		if frame == nil {
 			frame = &Frame{}
@@ -142,17 +174,17 @@ func (dec *Decoder) DecodeToFrameByPacket(packet *Packet) (*[]Frame, error) {
 		frames = append(frames, *frame)
 	}
 
-	return &frames, err
+	return frames, err
 }
 
 // 解码
 // 注意：可能会返回多个Frame
 // 注意：当出现错误时也可能会返回Frame，应当对返回的Frame进行释放处理
-// 返回值: output *[]Frame, err error
-func (dec *Decoder) DecodeToFrameByData(data *[]byte) (*[]Frame, error) {
+// 返回值: output []Frame, err error
+func (dec *Decoder) DecodeToFrameByData(data []byte) ([]Frame, error) {
 	var packet *Packet
 	var err error
-	var frames *[]Frame
+	var frames []Frame
 
 	//是否为flush请求
 	if data == nil {
@@ -185,20 +217,20 @@ END:
 // 解码
 // 注意：可能会返回多个Frame数据
 // 注意：当出现错误时也可能会返回部分数据，应当对返回的Frame进行释放处理
-// 返回值: output *[][]byte, err error
-func (dec *Decoder) DecodeToDataByData(data *[]byte) (*[][]byte, error) {
-	var frames *[]Frame
+// 返回值: output [][]byte, err error
+func (dec *Decoder) DecodeToDataByData(data []byte) ([][]byte, error) {
+	var frames []Frame
 	var err error
 	frames, err = dec.DecodeToFrameByData(data)
 
 	output := make([][]byte, 0)
 
-	for _, v := range *frames {
+	for _, v := range frames {
 		outputData := v.GetData()
-		output = append(output, *outputData)
+		output = append(output, outputData)
 		//回收Frame
 		dec.recyclingFrame(&v)
 	}
 
-	return &output, err
+	return output, err
 }
