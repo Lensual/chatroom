@@ -71,6 +71,7 @@ func (packet *Packet) Parse(data *[]byte) {
 	packet.avPacket.size = C.int(len(*data))
 }
 
+//获取Packet中的数据
 func (packet *Packet) GetData() *[]byte {
 	pkt := C.GoBytes(unsafe.Pointer(packet.avPacket.data), packet.avPacket.size)
 	return &pkt

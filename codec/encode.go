@@ -178,7 +178,7 @@ func (enc *Encoder) recyclingPacket(packet *Packet) {
 
 // 编码
 // 注意：可能会返回多个Packet
-// 注意：当出现错误时也会返回Packet，应当对返回的Packet进行释放处理
+// 注意：当出现错误时也可能会返回Packet，应当对返回的Packet进行释放处理
 // 返回值: output *[]Packet, err error,
 func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 	var avFrame *C.AVFrame
@@ -236,7 +236,7 @@ func (enc *Encoder) EncodeToPacketByFrame(frame *Frame) (*[]Packet, error) {
 
 // 编码
 // 注意：可能会返回多个Packet
-// 注意：当出现错误时也会返回Packet，应当对返回的Packet进行释放处理
+// 注意：当出现错误时也可能会返回Packet，应当对返回的Packet进行释放处理
 // 返回值: output *[]Packet, err error
 func (enc *Encoder) EncodeToPacketByData(data *[]byte) (*[]Packet, error) {
 	var frame *Frame
@@ -276,8 +276,8 @@ END:
 }
 
 // 编码
-// 注意：可能会返回多个Packet
-// 注意：当出现错误时也会返回部分数据，但因为是GO对象所以不需要释放处理
+// 注意：可能会返回多个Packet数据
+// 注意：当出现错误时也可能会返回部分数据，但因为是GO对象所以不需要释放处理
 // 返回值: output *[][]byte, err error
 func (enc *Encoder) EncodeToDataByData(data *[]byte) (*[][]byte, error) {
 	var packets *[]Packet
@@ -286,8 +286,8 @@ func (enc *Encoder) EncodeToDataByData(data *[]byte) (*[][]byte, error) {
 
 	output := make([][]byte, 0)
 	for _, v := range *packets {
-		data := v.GetData()
-		output = append(output, *data)
+		outputData := v.GetData()
+		output = append(output, *outputData)
 		//回收Packet
 		enc.recyclingPacket(&v)
 	}
